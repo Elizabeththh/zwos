@@ -1,3 +1,0 @@
-\begin{MintedVerbatim}[commandchars=\\\{\}]
-qemu\PYGZhy{}system\PYGZhy{}x86\PYGZus{}64\PYG{+w}{ }\PYGZhy{}bios\PYG{+w}{ }./assets/OVMF.fd\PYG{+w}{ }\PYGZhy{}net\PYG{+w}{ }none\PYG{+w}{ }\PYGZhy{}nographic
-\end{MintedVerbatim}

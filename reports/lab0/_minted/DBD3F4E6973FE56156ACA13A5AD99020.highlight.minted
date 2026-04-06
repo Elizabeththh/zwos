@@ -1,4 +1,0 @@
-\begin{MintedVerbatim}[commandchars=\\\{\}]
-[ INFO]: crates/boot/src/main.rs@017:
-Hello World from UEFI bootloader! @ 24353028
-\end{MintedVerbatim}

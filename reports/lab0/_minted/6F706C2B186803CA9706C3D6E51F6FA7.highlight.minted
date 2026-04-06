@@ -1,7 +1,0 @@
-\begin{MintedVerbatim}[commandchars=\\\{\}]
-sudo\PYG{+w}{ }apt\PYG{+w}{ }update\PYG{+w}{ }\PYG{o}{\PYGZam{}\PYGZam{}}\PYG{+w}{ }sudo\PYG{+w}{ }apt\PYG{+w}{ }upgrade
-sudo\PYG{+w}{ }apt\PYG{+w}{ }install\PYG{+w}{ }\PYGZhy{}y\PYG{+w}{ }\PYG{l+s+se}{\PYGZbs{}}
-\PYG{+w}{    }build\PYGZhy{}essential\PYG{+w}{ }\PYG{l+s+se}{\PYGZbs{}}
-\PYG{+w}{    }gdb\PYG{+w}{ }\PYG{l+s+se}{\PYGZbs{}}
-\PYG{+w}{    }qemu\PYGZhy{}system\PYGZhy{}x86
-\end{MintedVerbatim}

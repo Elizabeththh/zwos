@@ -18,3 +18,4 @@
 ### Latex ###
 *.synctex.gz
 *.pdf
+**/_minted-*/

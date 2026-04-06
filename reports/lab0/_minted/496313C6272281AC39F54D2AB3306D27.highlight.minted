@@ -1,7 +1,0 @@
-\begin{MintedVerbatim}[commandchars=\\\{\}]
-\PYG{k}{static}\PYG{+w}{ }\PYG{n}{COUNTER}\PYG{p}{:}\PYG{+w}{ }\PYG{n+nc}{AtomicU16}\PYG{+w}{ }\PYG{o}{=}\PYG{+w}{ }\PYG{n}{AtomicU16}\PYG{p}{::}\PYG{n}{new}\PYG{p}{(}\PYG{l+m+mi}{0}\PYG{p}{)}\PYG{p}{;}
-
-\PYG{k}{pub}\PYG{+w}{ }\PYG{k}{fn}\PYG{+w}{ }\PYG{n+nf}{next\PYGZus{}id\PYGZus{}safe}\PYG{p}{(}\PYG{p}{)}\PYG{+w}{ }\PYG{p}{\PYGZhy{}\PYGZgt{}}\PYG{+w}{ }\PYG{k+kt}{u16}\PYG{+w}{ }\PYG{p}{\PYGZob{}}
-\PYG{+w}{    }\PYG{n}{COUNTER}\PYG{p}{.}\PYG{n}{fetch\PYGZus{}add}\PYG{p}{(}\PYG{l+m+mi}{1}\PYG{p}{,}\PYG{+w}{ }\PYG{n}{Ordering}\PYG{p}{::}\PYG{n}{SeqCst}\PYG{p}{)}
-\PYG{p}{\PYGZcb{}}
-\end{MintedVerbatim}

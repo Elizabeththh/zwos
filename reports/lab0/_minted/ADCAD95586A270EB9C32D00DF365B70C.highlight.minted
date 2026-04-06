@@ -1,3 +1,0 @@
-\begin{MintedVerbatim}[commandchars=\\\{\}]
-\PYG{n+nb}{echo}\PYG{+w}{ }\PYG{l+s+s2}{\PYGZdq{}alias qemu=\PYGZsq{}qemu\PYGZhy{}system\PYGZhy{}x86\PYGZus{}64\PYGZsq{}\PYGZdq{}}
-\end{MintedVerbatim}
