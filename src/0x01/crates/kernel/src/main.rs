@@ -15,6 +15,8 @@ pub fn kernel_main(boot_info: &'static boot::BootInfo) -> ! {
 
     loop {
         info!("Hello World from YatSenOS v2!");
+        debug!("Test Debug Mode");
+        trace!("Test Verbose Mode");
 
         for _ in 0..0x10000000 {
             unsafe {
