@@ -1,12 +1,9 @@
 #![no_std]
 #![no_main]
 
-#[macro_use]
+use ysos_kernel::{self as ysos, input, interrupt, print, println};
+// #[macro_use]
 extern crate log;
-
-use core::arch::asm;
-
-use ysos_kernel as ysos;
 
 boot::entry_point!(kernel_main);
 
@@ -14,14 +11,16 @@ pub fn kernel_main(boot_info: &'static boot::BootInfo) -> ! {
     ysos::init(boot_info);
 
     loop {
-        info!("Hello World from YatSenOS v2!");
-        debug!("Test Debug Mode");
-        trace!("Test Verbose Mode");
+        print!("> ");
+        let input = input::get_line();
 
-        for _ in 0..0x10000000 {
-            unsafe {
-                asm!("nop");
+        match input.trim() {
+            "exit" => break,
+            _ => {
+                println!("You said {}", input);
+                println!("The counter value is {}", interrupt::clock::read_counter());
             }
         }
-    }
+    };
+    ysos::shutdown();
 }

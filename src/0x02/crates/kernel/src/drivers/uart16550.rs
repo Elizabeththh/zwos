@@ -49,6 +49,13 @@ bitflags! {
         /// Transmitter Holding Register Empty
         const TX_HOLDING_EMPTY = 0x20;
     }
+
+    // Interrupt Enable Register
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct IERFlags: u8 {
+        const RECEIVE_DATA = 0x01;
+        const TRANSIMIT_HODING_EMPTY = 0x02;
+    }
 }
 
 /// A port-mapped UART 16550 serial interface.
@@ -140,6 +147,11 @@ impl<const BASE_ADDR: u16> SerialPort<BASE_ADDR> {
             unsafe {
                 mc_port.write(mc_normal.bits());
             }
+        }
+
+        // Enable Interrupts
+        unsafe {
+            ier_port.write(IERFlags::RECEIVE_DATA.bits());
         }
     }
 

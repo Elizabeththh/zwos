@@ -1,21 +1,21 @@
 mod apic;
 mod consts;
-// mod clock;
-// mod serial;
+pub mod clock;
+mod serial;
 mod exceptions;
 
 use apic::*;
 use x86_64::structures::idt::InterruptDescriptorTable;
 
-use crate::memory::physical_to_virtual;
+use crate::{interrupt::consts::Irq, memory::physical_to_virtual};
 
 lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
         let mut idt = InterruptDescriptorTable::new();
         unsafe {
             exceptions::register_idt(&mut idt);
-            // TODO: clock::register_idt(&mut idt);
-            // TODO: serial::register_idt(&mut idt);
+            clock::register_idt(&mut idt);
+            serial::register_idt(&mut idt);
         }
         idt
     };
@@ -25,10 +25,26 @@ lazy_static! {
 pub fn init() {
     IDT.load();
 
-    // FIXME: check and init APIC
+    if XApic::support() {
+        // FIXED: check and init APIC
+        let mut lapic = unsafe {
+            XApic::new(physical_to_virtual(LAPIC_ADDR))
+        };
+        lapic.cpu_init();
+        info!("APIC Initialized.");
 
-    // FIXME: enable serial irq with IO APIC (use enable_irq)
-
+        // FIXED: enable serial irq with IO APIC (use enable_irq)
+        let mut ioapic = unsafe {
+            IoApic::new(physical_to_virtual(IOAPIC_ADDR))
+        };
+        ioapic.disable_all();
+        enable_irq(Irq::Serial0 as u8, 0);
+        info!("IOAPIC Enabled.");
+    } else {
+        info!("APIC is not supported.");
+    }
+    
+    
     info!("Interrupts Initialized.");
 }
 

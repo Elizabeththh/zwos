@@ -23,6 +23,10 @@ lazy_static! {
         // will be allocated on the bss section when the kernel is load
         //
         // DO NOT MODIFY THE FOLLOWING CODE
+        // Note: Only the first entry (RSP0) of privilege_stack_table is initialized because
+                // modern OS kernels typically use only two privilege levels: Ring 0 (kernel) and Ring 3 (user).
+                // When a user-mode program transitions to kernel mode via syscall or interrupt,
+                // the CPU automatically switches to the stack pointed to by RSP0.
         tss.privilege_stack_table[0] = {
             const STACK_SIZE: usize = IST_SIZES[0];
             static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
@@ -36,8 +40,36 @@ lazy_static! {
             stack_end
         };
 
-        // FIXME: fill tss.interrupt_stack_table with the static stack buffers like above
+        // FIXED: fill tss.interrupt_stack_table with the static stack buffers like above
         // You can use `tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize]`
+
+        // Allocate IST stack for Double Fault
+        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
+            const STACK_SIZE: usize = IST_SIZES[0];
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(addr_of_mut!(STACK));
+            let stack_end = stack_start + STACK_SIZE as u64;
+            info!(
+                "DOUBLE FAULT IST  : 0x{:016x}-0x{:016x}",
+                stack_start.as_u64(),
+                stack_end.as_u64()
+            );
+            stack_end
+        };
+        
+        // Allocate IST stack for Page Fault
+        tss.interrupt_stack_table[PAGE_FAULT_IST_INDEX as usize] = {
+            const STACK_SIZE: usize = IST_SIZES[1];
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(addr_of_mut!(STACK));
+            let stack_end = stack_start + STACK_SIZE as u64;
+            info!(
+                "PAGE FAULT IST  : 0x{:016x}-0x{:016x}",
+                stack_start.as_u64(),
+                stack_end.as_u64()
+            );
+            stack_end
+        };
 
         tss
     };
