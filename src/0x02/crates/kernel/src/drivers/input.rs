@@ -33,7 +33,10 @@ pub fn get_line() -> String {
     loop {
         let c = pop_key();
         if c == 0x08 || c == 0x7f {
-            print!("\x08 \x08");
+            if !buf.is_empty() {
+                buf.pop();
+                print!("\x08 \x08");
+            }
         } else if c == 0x0A || c == 0x0D {
             print!{"\n"};
             return buf;

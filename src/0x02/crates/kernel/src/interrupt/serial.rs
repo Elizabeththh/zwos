@@ -16,7 +16,7 @@ pub extern "x86-interrupt" fn serial_handler(_st: InterruptStackFrame) {
 /// Receive character from uart 16550
 /// Should be called on every interrupt
 fn receive() {
-    // FIXME: receive character from uart 16550, put it into INPUT_BUFFER
+    // FIXED: receive character from uart 16550, put it into INPUT_BUFFER
     if let Some(mut serial) = drivers::serial::get_serial() {
         if let Some(ch) = serial.receive() {
             drivers::input::push_key(ch);
