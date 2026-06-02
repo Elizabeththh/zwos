@@ -1,4 +1,4 @@
-use alloc::{collections::*, format};
+use alloc::{collections::*, format, sync::Arc};
 
 use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
@@ -10,13 +10,15 @@ use crate::memory::{
     get_frame_alloc_for_sure,
 };
 
+use processor::*;
+
 pub static PROCESS_MANAGER: spin::Once<ProcessManager> = spin::Once::new();
 
 pub fn init(init: Arc<Process>) {
-    // FIXME: set init process as Running
-
-    // FIXME: set processor's current pid to init's pid
-
+    // FIXED: set init process as Running
+    init.write().resume();
+    // FIXED: set processor's current pid to init's pid
+    processor::set_pid(init.pid());
     PROCESS_MANAGER.call_once(|| ProcessManager::new(init));
 }
 

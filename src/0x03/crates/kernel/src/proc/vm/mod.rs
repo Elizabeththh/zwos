@@ -8,7 +8,7 @@ use x86_64::{
 use crate::{humanized_size, memory::*};
 
 pub mod stack;
-
+pub use stack::consts_init;
 use self::stack::*;
 use super::{PageTableContext, ProcessId};
 

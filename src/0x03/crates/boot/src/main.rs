@@ -91,6 +91,11 @@ fn efi_main() -> Status {
     let bootinfo = BootInfo {
         memory_map: mmap.entries().copied().collect(),
         physical_memory_offset: config.physical_memory_offset,
+        kernel_stack_max_addr: config.kernel_stack_max_addr,
+        kernel_default_page: config.kernel_default_page,
+        stack_max_addr: config.stack_max_addr,
+        stack_max_pages: config.stack_max_pages,
+        stack_default_page: config.stack_default_page,
         system_table,
         log_level: kernel_log_level,
     };

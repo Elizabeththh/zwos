@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use hashbrown::HashMap;
 use spin::RwLock;
 

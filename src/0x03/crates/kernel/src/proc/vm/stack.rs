@@ -3,37 +3,100 @@ use x86_64::{
     structures::paging::{Page, mapper::MapToError, page::*},
 };
 
+use crate::memory::PAGE_SIZE;
 use super::{FrameAllocatorRef, MapperRef};
 
+
+
 // 0xffff_ff00_0000_0000 is the kernel's address space
-pub const STACK_MAX: u64 = 0x4000_0000_0000;
-pub const STACK_MAX_PAGES: u64 = 0x100000;
-pub const STACK_MAX_SIZE: u64 = STACK_MAX_PAGES * crate::memory::PAGE_SIZE;
-pub const STACK_START_MASK: u64 = !(STACK_MAX_SIZE - 1);
-// [bot..0x2000_0000_0000..top..0x3fff_ffff_ffff]
-// init stack
-pub const STACK_DEF_BOT: u64 = STACK_MAX - STACK_MAX_SIZE;
-pub const STACK_DEF_PAGE: u64 = 1;
-pub const STACK_DEF_SIZE: u64 = STACK_DEF_PAGE * crate::memory::PAGE_SIZE;
+pub struct StackConsts {
+    
+    pub stack_max_addr: u64,
+    pub stack_max_pages: u64,
+    pub stack_max_size: u64,
+    pub stack_start_mask: u64,
+    // [bo0x2000_0000_0000..top..0x3fff_ffff_ffff]
+    //init stack
+    pub stack_def_bot: u64,
+    pub stack_def_page: u64,
+    pub stack_def_size: u64,
+    
+    pub stack_init_bot: u64,
+    pub stack_init_top: u64,
 
-pub const STACK_INIT_BOT: u64 = STACK_MAX - STACK_DEF_SIZE;
-pub const STACK_INIT_TOP: u64 = STACK_MAX - 8;
+    stack_init_top_page: Page<Size4KiB>
+}
 
-const STACK_INIT_TOP_PAGE: Page<Size4KiB> = Page::containing_address(VirtAddr::new(STACK_INIT_TOP));
+pub static STACK_CONSTS: spin::Once<StackConsts> = spin::Once::new();
 
 // [bot..0xffffff0100000000..top..0xffffff01ffffffff]
 // kernel stack
-pub const KSTACK_MAX: u64 = 0xffff_ff02_0000_0000;
-pub const KSTACK_DEF_BOT: u64 = KSTACK_MAX - STACK_MAX_SIZE;
-pub const KSTACK_DEF_PAGE: u64 = /* FIXME: decide on the boot config */;
-pub const KSTACK_DEF_SIZE: u64 = KSTACK_DEF_PAGE * crate::memory::PAGE_SIZE;
+pub struct KernelStackConsts {
 
-pub const KSTACK_INIT_BOT: u64 = KSTACK_MAX - KSTACK_DEF_SIZE;
-pub const KSTACK_INIT_TOP: u64 = KSTACK_MAX - 8;
+    pub kstack_max_addr: u64,
+    pub kstack_def_bot: u64,
+    pub kstack_def_page: u64,
+    pub kstack_def_size: u64,
+    pub kstack_init_bot: u64,
+    pub kstack_init_top: u64,
 
-const KSTACK_INIT_PAGE: Page<Size4KiB> = Page::containing_address(VirtAddr::new(KSTACK_INIT_BOT));
-const KSTACK_INIT_TOP_PAGE: Page<Size4KiB> =
-    Page::containing_address(VirtAddr::new(KSTACK_INIT_TOP));
+    kstack_init_page: Page<Size4KiB>,
+    kstack_init_top_page: Page<Size4KiB>,
+}
+
+pub static KERNEL_STACK_CONSTS: spin::Once<KernelStackConsts> = spin::Once::new();
+
+pub fn consts_init(boot_info: &'static BootInfo) {
+    STACK_CONSTS.call_once(|| {
+        let stack_max_addr = boot_info.stack_max_addr;
+        let stack_max_pages = boot_info.stack_max_pages;
+        let stack_max_size = stack_max_pages * PAGE_SIZE;
+        let stack_start_mask = !(stack_max_size - 1);
+        let stack_def_bot = stack_max_addr - stack_max_size;
+        let stack_def_page = boot_info.stack_default_page;
+        let stack_def_size = stack_def_page * PAGE_SIZE;
+        let stack_init_bot = stack_max_addr - stack_def_size;
+        let stack_init_top = stack_max_addr - 8;
+        
+        let stack_init_top_page = Page::containing_address(VirtAddr::new(stack_init_top));
+        
+        StackConsts {
+            stack_max_addr,
+            stack_max_pages,
+            stack_max_size,
+            stack_start_mask,
+            stack_def_bot,
+            stack_def_page,
+            stack_def_size,
+            stack_init_bot,
+            stack_init_top,
+            stack_init_top_page,
+        }
+    });
+
+    KERNEL_STACK_CONSTS.call_once(|| {
+        let kstack_max_addr = boot_info.kernel_stack_max_addr;
+        let kstack_def_bot = kstack_max_addr - STACK_CONSTS.wait().stack_max_size;
+        let kstack_def_page = boot_info.kernel_default_page;
+        let kstack_def_size = kstack_def_page * PAGE_SIZE;
+        let kstack_init_bot = kstack_max_addr - kstack_def_size;
+        let kstack_init_top = kstack_max_addr - 8;
+
+        let kstack_init_page = Page::containing_address(VirtAddr::new(kstack_init_bot));
+        let kstack_init_top_page = Page::containing_address(VirtAddr::new(kstack_init_top));
+
+        KernelStackConsts {
+            kstack_max_addr,
+            kstack_def_bot,
+            kstack_def_page,
+            kstack_def_size,
+            kstack_init_bot,
+            kstack_init_top,
+            kstack_init_page,
+            kstack_init_top_page,
+        }
+    });
+}
 
 pub struct Stack {
     range: PageRange<Size4KiB>,
@@ -50,23 +113,23 @@ impl Stack {
 
     pub const fn empty() -> Self {
         Self {
-            range: Page::range(STACK_INIT_TOP_PAGE, STACK_INIT_TOP_PAGE),
+            range: Page::range(STACK_CONSTS.wait().stack_init_top_page, STACK_CONSTS.wait().stack_init_top_page),
             usage: 0,
         }
     }
 
     pub const fn kstack() -> Self {
         Self {
-            range: Page::range(KSTACK_INIT_PAGE, KSTACK_INIT_TOP_PAGE),
-            usage: KSTACK_DEF_PAGE,
+            range: Page::range(KERNEL_STACK_CONSTS.wait().kstack_init_page, KERNEL_STACK_CONSTS.wait().kstack_init_top_page),
+            usage: KERNEL_STACK_CONSTS.wait().kstack_def_page,
         }
     }
 
     pub fn init(&mut self, mapper: MapperRef, alloc: FrameAllocatorRef) {
         debug_assert!(self.usage == 0, "Stack is not empty.");
 
-        self.range = elf::map_range(STACK_INIT_BOT, STACK_DEF_PAGE, mapper, alloc).unwrap();
-        self.usage = STACK_DEF_PAGE;
+        self.range = elf::map_range(STACK_CONSTS.wait().stack_init_bot, STACK_CONSTS.wait().stack_def_page, mapper, alloc).unwrap();
+        self.usage = STACK_CONSTS.wait().stack_def_page;
     }
 
     pub fn handle_page_fault(
@@ -92,7 +155,7 @@ impl Stack {
         let cur_stack_bot = self.range.start.start_address().as_u64();
         trace!("Current stack bot: {:#x}", cur_stack_bot);
         trace!("Address to access: {:#x}", addr);
-        addr & STACK_START_MASK == cur_stack_bot & STACK_START_MASK
+        addr & STACK_CONSTS.wait().stack_start_mask == cur_stack_bot & STACK_CONSTS.wait().stack_start_mask
     }
 
     fn grow_stack(
@@ -109,7 +172,7 @@ impl Stack {
     }
 
     pub fn memory_usage(&self) -> u64 {
-        self.usage * crate::memory::PAGE_SIZE
+        self.usage * PAGE_SIZE
     }
 }
 

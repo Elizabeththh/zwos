@@ -5,6 +5,7 @@ mod paging;
 mod pid;
 mod process;
 mod processor;
+pub mod vm;
 
 use alloc::string::String;
 
@@ -15,8 +16,9 @@ pub use paging::PageTableContext;
 pub use pid::ProcessId;
 use process::*;
 use x86_64::{VirtAddr, structures::idt::PageFaultErrorCode};
+use vm::ProcessVm;
 
-use crate::memory::PAGE_SIZE;
+use crate::{memory::PAGE_SIZE, proc::vm::stack::{KERNEL_STACK_CONSTS, KSTACK_INIT_BOT, KSTACK_INIT_TOP, KSTACK_MAX, STACK_CONSTS}};
 pub const KERNEL_PID: ProcessId = ProcessId(1);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -30,11 +32,21 @@ pub enum ProgramStatus {
 /// init process manager
 pub fn init() {
     let proc_vm = ProcessVm::new(PageTableContext::new()).init_kernel_vm();
+    let mut proc_dt = ProcessData::new();
+    let kernel_stack_consts = KERNEL_STACK_CONSTS.wait();
+
+    proc_dt.set_env("kernel_version", env!("CARGO_PKG_VERSION"));
+    proc_dt.set_env("kernel_max_address", kernel_stack_consts.kstack_max_addr.into());
+    proc_dt.set_env("kernel_init_top", kernel_stack_consts.kstack_init_top.into());
+    proc_dt.set_env("kernel_init_bot", kernel_stack_consts.kstack_init_bot.into());
 
     trace!("Init kernel vm: {:#?}", proc_vm);
 
     // kernel process
-    let kproc = { /* FIXME: create kernel process */ };
+    // FIXED: create kernel process
+    let kproc = {
+        Process::new(String::from("kernel"), None, Some(proc_vm), Some(proc_dt))
+    };
     manager::init(kproc);
 
     info!("Process Manager Initialized.");
