@@ -6,9 +6,12 @@ pub struct ProcessId(pub u16);
 impl ProcessId {
     pub fn new() -> Self {
         // FIXED: Get a unique PID
-        static CNT: u16 = 0;
-        CNT += 1;
-        ProcessId((CNT))
+        static CNT: AtomicU16 = AtomicU16::new(1);
+        let pid = CNT.fetch_add(1, Ordering::SeqCst);
+        if pid == u16::MAX {
+            panic!("PID exhausted, no available PID");
+        }
+        ProcessId(pid)
     }
 }
 

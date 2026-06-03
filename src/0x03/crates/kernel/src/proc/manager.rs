@@ -4,18 +4,11 @@ use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
 
 use super::*;
-use crate::memory::{
-    self, PAGE_SIZE,
-    allocator::{ALLOCATOR, HEAP_SIZE},
-    get_frame_alloc_for_sure,
-};
 
-use processor::*;
 
 pub static PROCESS_MANAGER: spin::Once<ProcessManager> = spin::Once::new();
 
 pub fn init(init: Arc<Process>) {
-    // FIXED: set init process as Running
     init.write().resume();
     // FIXED: set processor's current pid to init's pid
     processor::set_pid(init.pid());
@@ -102,18 +95,22 @@ impl ProcessManager {
         let kproc = self.get_proc(&KERNEL_PID).unwrap();
         let page_table = kproc.read().clone_page_table();
         let proc_vm = Some(ProcessVm::new(page_table));
-        let proc = Process::new(name, Some(Arc::downgrade(&kproc)), proc_vm, proc_data);
+        let proc: Arc<Process> = Process::new(name, Some(Arc::downgrade(&kproc)), proc_vm, proc_data);
 
         // alloc stack for the new process base on pid
         let stack_top = proc.alloc_init_stack();
 
-        // FIXME: set the stack frame
+        // FIXED: set the stack frame
+        proc.write().init_context(entry, stack_top);
 
-        // FIXME: add to process map
+        // FIXED: add to process map
+        self.add_proc(proc.pid(), proc.clone());
 
-        // FIXME: push to ready queue
+        // FIXED: push to ready queue
+        self.push_ready(proc.pid());
 
-        // FIXME: return new process pid
+        // FIXED: return new process pid
+        proc.pid()
     }
 
     pub fn kill_current(&self, ret: isize) {

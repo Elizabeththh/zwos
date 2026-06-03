@@ -1,4 +1,4 @@
-use craTe::proc::Context;
+use crate::proc::{ProcessContext};
 
 use super::consts::*;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};

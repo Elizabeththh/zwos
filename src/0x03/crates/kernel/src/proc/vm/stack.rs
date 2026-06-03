@@ -1,3 +1,4 @@
+use boot::BootInfo;
 use x86_64::{
     VirtAddr,
     structures::paging::{Page, mapper::MapToError, page::*},
@@ -99,8 +100,8 @@ pub fn consts_init(boot_info: &'static BootInfo) {
 }
 
 pub struct Stack {
-    range: PageRange<Size4KiB>,
-    usage: u64,
+    pub(crate) range: PageRange<Size4KiB>,
+    pub(crate) usage: u64,
 }
 
 impl Stack {
@@ -111,14 +112,14 @@ impl Stack {
         }
     }
 
-    pub const fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             range: Page::range(STACK_CONSTS.wait().stack_init_top_page, STACK_CONSTS.wait().stack_init_top_page),
             usage: 0,
         }
     }
 
-    pub const fn kstack() -> Self {
+    pub fn kstack() -> Self {
         Self {
             range: Page::range(KERNEL_STACK_CONSTS.wait().kstack_init_page, KERNEL_STACK_CONSTS.wait().kstack_init_top_page),
             usage: KERNEL_STACK_CONSTS.wait().kstack_def_page,

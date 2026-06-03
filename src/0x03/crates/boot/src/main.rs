@@ -69,7 +69,7 @@ fn efi_main() -> Status {
     let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator);
 
     // map kernel stack
-    elf::map_range(config.kernel_stack_address, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
+    elf::map_range(config.kernel_stack_addr, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
 
     // recover write protect (Cr0)
     unsafe {
@@ -91,7 +91,7 @@ fn efi_main() -> Status {
     let bootinfo = BootInfo {
         memory_map: mmap.entries().copied().collect(),
         physical_memory_offset: config.physical_memory_offset,
-        kernel_stack_max_addr: config.kernel_stack_max_addr,
+        kernel_stack_max_addr: config.kernel_stack_max,
         kernel_default_page: config.kernel_default_page,
         stack_max_addr: config.stack_max_addr,
         stack_max_pages: config.stack_max_pages,
@@ -101,7 +101,7 @@ fn efi_main() -> Status {
     };
 
     // align stack to 8 bytes
-    let stacktop = config.kernel_stack_address + config.kernel_stack_size * 0x1000 - 8;
+    let stacktop = config.kernel_stack_addr + config.kernel_stack_size * 0x1000 - 8;
 
     jump_to_entry(&bootinfo, stacktop);
 }

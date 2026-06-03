@@ -1,12 +1,10 @@
-use alloc::{sync::Weak, vec::Vec};
+use alloc::{sync::{Arc, Weak}, vec::Vec};
 
 use spin::*;
-use x86_64::structures::paging::{mapper::MapToError, page::PageRange, *};
 
 use super::*;
-use crate::{memory::*};
+use crate::proc;
 
-#[derive(Clone)]
 pub struct Process {
     pid: ProcessId,
     inner: RwLock<ProcessInner>,
@@ -31,12 +29,12 @@ impl Process {
     }
 
     #[inline]
-    pub fn write(&self) -> RwLockWriteGuard<ProcessInner> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, ProcessInner> {
         self.inner.write()
     }
 
     #[inline]
-    pub fn read(&self) -> RwLockReadGuard<ProcessInner> {
+    pub fn read(&self) -> RwLockReadGuard<'_, ProcessInner> {
         self.inner.read()
     }
 
@@ -165,6 +163,10 @@ impl ProcessInner {
         // FIXED: take and drop unused resources
         self.proc_data.take();
         self.proc_vm.take();
+    }
+
+    pub fn init_context(&mut self, entry: VirtAddr, stack_top: VirtAddr) {
+        self.context.init_stack_frame(entry, stack_top);
     }
 }
 
