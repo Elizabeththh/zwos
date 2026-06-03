@@ -5,7 +5,10 @@ pub struct ProcessId(pub u16);
 
 impl ProcessId {
     pub fn new() -> Self {
-        // FIXME: Get a unique PID
+        // FIXED: Get a unique PID
+        static CNT: u16 = 0;
+        CNT += 1;
+        ProcessId((CNT))
     }
 }
 

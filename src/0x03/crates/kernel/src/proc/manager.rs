@@ -59,7 +59,7 @@ impl ProcessManager {
     }
 
     #[inline]
-    fn get_proc(&self, pid: &ProcessId) -> Option<Arc<Process>> {
+    pub(super) fn get_proc(&self, pid: &ProcessId) -> Option<Arc<Process>> {
         self.processes.read().get(pid).cloned()
     }
 
@@ -69,23 +69,28 @@ impl ProcessManager {
     }
 
     pub fn save_current(&self, context: &ProcessContext) {
-        // FIXME: update current process's tick count
-
-        // FIXME: save current process's context
+        // FIXED: update current process's tick count
+        self.current().write().tick();
+        // FIXED: save current process's context
+        self.current().write().save(context);
     }
 
     pub fn switch_next(&self, context: &mut ProcessContext) -> ProcessId {
 
-        // FIXME: fetch the next process from ready queue
+        let process_manager = PROCESS_MANAGER.wait();
 
-        // FIXME: check if the next process is ready,
-        //        continue to fetch if not ready
+        // FIXED: fetch the next process from ready queue
+        let pid = process_manager.ready_queue.lock().pop_front().expect("No Process Found In Ready Queue");
+        let proc = process_manager.get_proc(&pid).expect("No Process Found Based on the Provided PID");
 
-        // FIXME: restore next process's context
+        // FIXED: restore next process's context
+        proc.write().restore(context);
 
-        // FIXME: update processor's current pid
+        // FIXED: update processor's current pid
+        processor::set_pid(pid);
 
-        // FIXME: return next process's pid
+        // FIXED: return next process's pid
+        pid
     }
 
     pub fn spawn_kernel_thread(

@@ -1,17 +1,18 @@
+use craTe::proc::Context;
+
 use super::consts::*;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use core::sync::atomic::{AtomicU64, Ordering};
 pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
     idt[Interrupts::IrqBase as u8 + Irq::Timer as u8]
-        .set_handler_fn(clock_handler);
+        .set_handler_fn(clock_interrupt_handler);
 }
 
-pub extern "x86-interrupt" fn clock_handler(_sf: InterruptStackFrame) {
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        inc_counter();
-        super::ack();
-    });
+fn clock_interrupt(mut context: ProcessContext) {   
+    crate::proc::switch(&mut context);
 }
+
+as_handler!(clock_interrupt);
 
 static COUNTER: AtomicU64 = AtomicU64::new(0) /* FIXED */;
 

@@ -55,9 +55,21 @@ pub fn init() {
 pub fn switch(context: &mut ProcessContext) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         // FIXME: switch to the next process
-        //      - save current process's context
-        //      - handle ready queue update
-        //      - restore next process's context
+
+        let process_manager = PROCESS_MANAGER.wait();
+        let old_pid = processor::get_pid();
+        let old_proc = process_manager.get_proc(&old_pid);
+
+        // save current process's context
+        process_manager.save_current(context);
+
+        if (old_proc.read().status() == ProgramStatus::Running) {
+            old_proc.write().pause();
+            // handle ready queue update
+            process_manager.push_ready(processor::get_pid());
+        }
+        // restore next process's context
+        process_manager.switch_next(context);
     });
 }
 
