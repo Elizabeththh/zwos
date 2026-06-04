@@ -57,7 +57,7 @@ pub fn switch(context: &mut ProcessContext) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         // FIXME: switch to the next process
 
-        let process_manager = PROCESS_MANAGER.wait();
+        let process_manager = get_process_manager();
         let old_pid = processor::get_pid();
         let old_proc = process_manager.get_proc(&old_pid).expect("No Process Found Based On Provided PID");
     
@@ -90,7 +90,7 @@ pub fn print_process_list() {
 pub fn env(key: &str) -> Option<String> {
     x86_64::instructions::interrupts::without_interrupts(|| {
         // FIXED: get current process's environment variable
-        PROCESS_MANAGER.wait().get_proc(&processor::get_pid()).expect("No Process Found Based On Provided PID").read().env(key)
+        get_process_manager().get_proc(&processor::get_pid()).expect("No Process Found Based On Provided PID").read().env(key)
     })
 }
 
@@ -106,7 +106,7 @@ pub fn process_exit(ret: isize) -> ! {
 
 pub fn exit_code(pid: &ProcessId) -> Option<isize> {
     x86_64::instructions::interrupts::without_interrupts(|| {
-        PROCESS_MANAGER.wait().get_proc(pid).expect("No Process Found Based On Provided PID").read().exit_code()
+        get_process_manager().get_proc(pid).expect("No Process Found Based On Provided PID").read().exit_code()
     })
 }
 

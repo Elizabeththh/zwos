@@ -70,7 +70,7 @@ impl ProcessManager {
 
     pub fn switch_next(&self, context: &mut ProcessContext) -> ProcessId {
 
-        let process_manager = PROCESS_MANAGER.wait();
+        let process_manager = get_process_manager();
 
         // FIXED: fetch the next process from ready queue
         let pid = process_manager.ready_queue.lock().pop_front().expect("No Process Found In Ready Queue");
