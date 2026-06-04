@@ -6,7 +6,7 @@ use core::{
 use bit_field::BitField;
 use x86::cpuid::CpuId;
 
-use crate::{interrupt::consts::{Interrupts, Irq}, memory::physical_to_virtual};
+use crate::interrupt::consts::{Interrupts, Irq};
 
 use super::LocalApic;
 

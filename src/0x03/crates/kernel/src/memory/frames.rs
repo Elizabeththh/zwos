@@ -65,7 +65,7 @@ fn create_frame_iter(memory_map: &BootMemoryMap) -> BootInfoFrameIter {
         // get usable regions from memory map
         .filter(|r| r.ty == MemoryType::CONVENTIONAL)
         // align to page boundary
-        .flat_map(|r| (0..r.page_count).map(move |v| (v * 4096 + r.phys_start)))
+        .flat_map(|r| (0..r.page_count).map(move |v| v * 4096 + r.phys_start))
         // create `PhysFrame` types from the start addresses
         .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)));
 

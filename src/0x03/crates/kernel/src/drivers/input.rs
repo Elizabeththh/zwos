@@ -1,5 +1,3 @@
-use core::char;
-
 use alloc::string::String;
 use crossbeam_queue::ArrayQueue;
 type Key = u8;

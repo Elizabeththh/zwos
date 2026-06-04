@@ -18,7 +18,7 @@ pub struct ProcessContext {
 
 impl ProcessContext {
     #[inline]
-    pub fn as_mut(&mut self) -> VolatileRef<ProcessContextValue> {
+    pub fn as_mut(&mut self) -> VolatileRef<'_, ProcessContextValue> {
         VolatileRef::from_mut_ref(&mut self.value)
     }
 
