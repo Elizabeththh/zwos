@@ -8,8 +8,10 @@ pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
         .set_handler_fn(clock_interrupt_handler);
 }
 
-fn clock_interrupt(mut context: ProcessContext) {   
+fn clock_interrupt(mut context: ProcessContext) { 
+    inc_counter();
     crate::proc::switch(&mut context);
+    super::ack();
 }
 
 as_handler!(clock_interrupt);
