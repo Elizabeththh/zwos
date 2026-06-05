@@ -1,7 +1,9 @@
+use core::iter::Map;
+
 use boot::BootInfo;
 use x86_64::{
     VirtAddr,
-    structures::paging::{Page, mapper::MapToError, page::*},
+    structures::paging::{Mapper, Page, mapper::MapToError, page::*},
 };
 
 use crate::memory::PAGE_SIZE;
@@ -151,7 +153,7 @@ impl Stack {
         true
     }
 
-    fn is_on_stack(&self, addr: VirtAddr) -> bool {
+    pub fn is_on_stack(&self, addr: VirtAddr) -> bool {
         let addr = addr.as_u64();
         let cur_stack_bot = self.range.start.start_address().as_u64();
         trace!("Current stack bot: {:#x}", cur_stack_bot);
@@ -167,7 +169,36 @@ impl Stack {
     ) -> Result<(), MapToError<Size4KiB>> {
         debug_assert!(self.is_on_stack(addr), "Address is not on stack.");
 
-        // FIXME: grow stack for page fault
+        // FIXED: grow stack for page fault
+        let fault_page = Page::<Size4KiB>::containing_address(addr);
+        let cur_range = self.range;
+
+
+        // Page range is left inclusive, right exclusive. This should be greater than instead of greater or equal to.
+        if fault_page >= cur_range.start {
+            return Err(MapToError::PageAlreadyMapped(
+                mapper.
+                translate_page(fault_page).
+                expect("could not translate, not already mapped")
+            ))
+        }
+
+        let new_page_count = cur_range.start - fault_page;
+        let new_usage = self.usage + new_page_count;
+
+        let consts = STACK_CONSTS.wait();
+        if new_usage > consts.stack_max_pages {
+            return Err(MapToError::FrameAllocationFailed);
+        }
+
+        elf::map_range(fault_page.start_address().as_u64(),
+        new_page_count,
+        mapper,
+        alloc
+        )?;
+
+        self.range = Page::range(fault_page, cur_range.end);
+        self.usage = new_usage;
 
         Ok(())
     }

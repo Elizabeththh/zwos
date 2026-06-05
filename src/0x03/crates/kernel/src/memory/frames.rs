@@ -47,8 +47,9 @@ impl BootInfoFrameAllocator {
 
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
+        let ret =self.frames.next();
         self.used += 1;
-        self.frames.next()
+        ret
     }
 }
 

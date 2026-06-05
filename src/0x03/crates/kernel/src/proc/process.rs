@@ -38,6 +38,10 @@ impl Process {
         self.inner.read()
     }
 
+    #[inline]
+    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, ProcessInner>> {
+        self.inner.try_read()
+    }
     pub fn new(
         name: String,
         parent: Option<Weak<Process>>,

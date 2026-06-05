@@ -55,7 +55,7 @@ pub fn init() {
 
 pub fn switch(context: &mut ProcessContext) {
     x86_64::instructions::interrupts::without_interrupts(|| {
-        // FIXME: switch to the next process
+        // FIXED: switch to the next process
 
         let process_manager = get_process_manager();
         let old_pid = processor::get_pid();
@@ -110,6 +110,15 @@ pub fn exit_code(pid: &ProcessId) -> Option<isize> {
     })
 }
 
+pub fn current_pid() -> ProcessId {
+    processor::get_pid()
+}
+
+pub fn current_process_name_safe() -> Option<String> {
+    let pid = processor::get_pid();
+    get_process_manager().get_proc(&pid).and_then(|p| p.try_read().map(|inner| inner.name().to_string()))
+}
+ 
 pub fn handle_page_fault(addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
     x86_64::instructions::interrupts::without_interrupts(|| {
         get_process_manager().handle_page_fault(addr, err_code)

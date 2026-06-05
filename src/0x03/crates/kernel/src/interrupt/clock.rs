@@ -1,16 +1,20 @@
-use crate::proc::{ProcessContext};
+use crate::{memory::gdt, proc::ProcessContext};
 
 use super::consts::*;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use core::sync::atomic::{AtomicU64, Ordering};
 pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
-    idt[Interrupts::IrqBase as u8 + Irq::Timer as u8]
-        .set_handler_fn(clock_interrupt_handler);
+    unsafe {
+        idt[Interrupts::IrqBase as u8 + Irq::Timer as u8]
+            .set_handler_fn(clock_interrupt_handler)
+            // set independent stack space for clock interrupt!!!!!!!
+            .set_stack_index(gdt::CLOCK_INTERRUPT_IST_INDEX);
+    }
 }
 
-fn clock_interrupt(mut context: ProcessContext) { 
+extern "C" fn clock_interrupt(context: &mut ProcessContext) { 
     inc_counter();
-    crate::proc::switch(&mut context);
+    crate::proc::switch(context);
     super::ack();
 }
 

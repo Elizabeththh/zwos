@@ -2,6 +2,7 @@ use alloc::{collections::*, format, sync::Arc};
 
 use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
+use x86_64::structures::paging::{Page, Size4KiB};
 
 use super::*;
 
@@ -118,9 +119,12 @@ impl ProcessManager {
     }
 
     pub fn handle_page_fault(&self, addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
-        // FIXME: handle page fault
-
-        false
+        // FIXED: handle page fault
+        if self.current().read().vm().stack.is_on_stack(addr) && !err_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
+            self.current().write().handle_page_fault(addr)
+        } else {
+            false
+        }
     }
 
     pub fn kill(&self, pid: ProcessId, ret: isize) {

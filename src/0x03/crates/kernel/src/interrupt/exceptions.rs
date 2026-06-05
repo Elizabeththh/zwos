@@ -1,12 +1,13 @@
 use core::panic;
 
+use alloc::string::ToString;
 use x86_64::{
     registers::control::Cr2,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
     VirtAddr
 };
 
-use crate::memory::*;
+use crate::{memory::*, proc::print_process_list};
 
 pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
     // DONE: you should handle more exceptions here
@@ -87,16 +88,23 @@ pub extern "x86-interrupt" fn page_fault_handler(
     stack_frame: InterruptStackFrame,
     err_code: PageFaultErrorCode,
 ) {
-    panic!(
-        "EXCEPTION: PAGE FAULT, ERROR_CODE: {:?}\n\nTrying to access: {:#x}\n{:#?}",
-        err_code,
-        Cr2::read().unwrap_or(VirtAddr::new_truncate(0xdeadbeef)),
-        stack_frame
-    );
+    if !crate::proc::handle_page_fault(Cr2::read().expect("CR2 register contains a non-canonical address"), err_code) {
+        warn!(
+            "EXCEPTION: PAGE FAULT, ERROR_CODE: {:?}\n\nTrying to access: {:#x}\n{:#?}",
+            err_code,
+            Cr2::read().expect("CR2 register contains a non-canonical address"),
+            stack_frame
+        );
+        // FIXED: print info about which process causes page fault?
+        let pid = crate::proc::current_pid();
+        let name = crate::proc::current_process_name_safe().unwrap_or_else(|| "unknown".to_string());
+        warn!("Page fault caused by process {}#{}", name, pid);
+        panic!("Cannot handle page fault!");
+    }
 }
 
 pub extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: InterruptStackFrame) {
-    panic!("EXCEPTION: x87 FLOATING POINT EXCEPTION\n\n{:#?}", stack_frame);
+    panic!("EXCEPTION: x86 FLOATING POINT EXCEPTION\n\n{:#?}", stack_frame);
 }
 
 // why error code?

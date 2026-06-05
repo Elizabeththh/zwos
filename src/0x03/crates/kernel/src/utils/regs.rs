@@ -64,6 +64,7 @@ macro_rules! as_handler {
                 push r13
                 push r14
                 push r15
+                mov rdi, rsp
                 call {}
                 pop r15
                 pop r14
