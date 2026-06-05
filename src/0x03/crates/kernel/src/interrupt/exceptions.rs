@@ -4,10 +4,9 @@ use alloc::string::ToString;
 use x86_64::{
     registers::control::Cr2,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
-    VirtAddr
 };
 
-use crate::{memory::*, proc::print_process_list};
+use crate::memory::*;
 
 pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
     // DONE: you should handle more exceptions here

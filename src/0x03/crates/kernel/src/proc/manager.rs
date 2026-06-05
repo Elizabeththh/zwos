@@ -2,7 +2,6 @@ use alloc::{collections::*, format, sync::Arc};
 
 use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
-use x86_64::structures::paging::{Page, Size4KiB};
 
 use super::*;
 

@@ -1,5 +1,3 @@
-use core::iter::Map;
-
 use boot::BootInfo;
 use x86_64::{
     VirtAddr,
