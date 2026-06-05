@@ -78,7 +78,7 @@ fn efi_main() -> Status {
     let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator, false);
 
     // map kernel stack
-    elf::map_range(config.kernel_stack_addr, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
+    elf::map_range(config.kernel_stack_addr, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator, false).expect("Failed to map kernel stack");
 
     // recover write protect (Cr0)
     unsafe {

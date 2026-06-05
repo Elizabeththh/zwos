@@ -129,7 +129,7 @@ impl Stack {
     pub fn init(&mut self, mapper: MapperRef, alloc: FrameAllocatorRef) {
         debug_assert!(self.usage == 0, "Stack is not empty.");
 
-        self.range = elf::map_range(STACK_CONSTS.wait().stack_init_bot, STACK_CONSTS.wait().stack_def_page, mapper, alloc).unwrap();
+        self.range = elf::map_range(STACK_CONSTS.wait().stack_init_bot, STACK_CONSTS.wait().stack_def_page, mapper, alloc, true).unwrap();
         self.usage = STACK_CONSTS.wait().stack_def_page;
     }
 
@@ -192,7 +192,8 @@ impl Stack {
         elf::map_range(fault_page.start_address().as_u64(),
         new_page_count,
         mapper,
-        alloc
+        alloc,
+        true
         )?;
 
         self.range = Page::range(fault_page, cur_range.end);
