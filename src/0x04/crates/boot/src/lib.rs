@@ -2,7 +2,7 @@
 
 use core::ptr::NonNull;
 
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayVec, ArrayString};
 pub use uefi::{
     Status,
     boot::{MemoryAttribute, MemoryDescriptor, MemoryType},
@@ -21,6 +21,7 @@ pub mod fs;
 
 pub use allocator::*;
 pub use fs::*;
+use xmas_elf::ElfFile;
 
 #[macro_use]
 extern crate log;
@@ -57,7 +58,20 @@ pub struct BootInfo {
 
     // kernel log level
     pub log_level: &'static str,
+
+    pub loaded_apps: Option<AppList>,
 }
+
+/// App information
+pub struct App {
+    /// The name of app
+    pub name: ArrayString<16>,
+    /// The ELF file
+    pub elf: ElfFile<'static>,
+}
+
+pub type AppList = ArrayVec<App, 16>;
+pub type AppListRef = Option<&'static AppList>;
 
 /// Get current page table from CR3
 pub fn current_page_table() -> OffsetPageTable<'static> {

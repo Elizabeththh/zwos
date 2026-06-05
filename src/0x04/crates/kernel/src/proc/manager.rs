@@ -1,18 +1,23 @@
-use alloc::{collections::*, format, sync::Arc};
+use alloc::{collections::*, format, sync::{Arc, Weak}};
 
+use boot::AppListRef;
+use elf::load_elf;
 use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
+use xmas_elf::ElfFile;
+
+use crate::memory::{PHYSICAL_OFFSET, get_frame_alloc_for_sure};
 
 use super::*;
 
 
 pub static PROCESS_MANAGER: spin::Once<ProcessManager> = spin::Once::new();
 
-pub fn init(init: Arc<Process>) {
+pub fn init(init: Arc<Process>, app_list: boot::AppListRef) {
     init.write().resume();
     // FIXED: set processor's current pid to init's pid
     processor::set_pid(init.pid());
-    PROCESS_MANAGER.call_once(|| ProcessManager::new(init));
+    PROCESS_MANAGER.call_once(|| ProcessManager::new(init, app_list));
 }
 
 pub fn get_process_manager() -> &'static ProcessManager {
@@ -24,10 +29,11 @@ pub fn get_process_manager() -> &'static ProcessManager {
 pub struct ProcessManager {
     processes: RwLock<HashMap<ProcessId, Arc<Process>, ahash::RandomState>>,
     ready_queue: Mutex<VecDeque<ProcessId>>,
+    app_list: AppListRef,
 }
 
 impl ProcessManager {
-    pub fn new(init: Arc<Process>) -> Self {
+    pub fn new(init: Arc<Process>, app_list: boot::AppListRef) -> Self {
         let mut processes = HashMap::default();
         let ready_queue = VecDeque::new();
         let pid = init.pid();
@@ -38,6 +44,7 @@ impl ProcessManager {
         Self {
             processes: RwLock::new(processes),
             ready_queue: Mutex::new(ready_queue),
+            app_list,
         }
     }
 
@@ -54,6 +61,11 @@ impl ProcessManager {
     #[inline]
     pub(super) fn get_proc(&self, pid: &ProcessId) -> Option<Arc<Process>> {
         self.processes.read().get(pid).cloned()
+    }
+
+    #[inline]
+    pub(super) fn app_list(&self) -> AppListRef{
+        self.app_list
     }
 
     pub fn current(&self) -> Arc<Process> {
@@ -86,31 +98,68 @@ impl ProcessManager {
         pid
     }
 
-    pub fn spawn_kernel_thread(
+    // pub fn spawn_kernel_thread(
+    //     &self,
+    //     entry: VirtAddr,
+    //     name: String,
+    //     proc_data: Option<ProcessData>,
+    // ) -> ProcessId {
+    //     let kproc = self.get_proc(&KERNEL_PID).unwrap();
+    //     let page_table = kproc.read().clone_page_table();
+    //     let proc_vm = Some(ProcessVm::new(page_table));
+    //     let proc: Arc<Process> = Process::new(name, Some(Arc::downgrade(&kproc)), proc_vm, proc_data);
+
+    //     // alloc stack for the new process base on pid
+    //     let stack_top = proc.alloc_init_stack();
+
+    //     // FIXED: set the stack frame
+    //     proc.write().init_context(entry, stack_top);
+
+    //     // FIXED: add to process map
+    //     self.add_proc(proc.pid(), proc.clone());
+
+    //     // FIXED: push to ready queue
+    //     self.push_ready(proc.pid());
+
+    //     // FIXED: return new process pid
+    //     proc.pid()
+    // }
+
+    pub fn spawn(
         &self,
-        entry: VirtAddr,
+        elf: &ElfFile,
         name: String,
+        parent: Option<Weak<Process>>,
         proc_data: Option<ProcessData>,
     ) -> ProcessId {
         let kproc = self.get_proc(&KERNEL_PID).unwrap();
         let page_table = kproc.read().clone_page_table();
         let proc_vm = Some(ProcessVm::new(page_table));
-        let proc: Arc<Process> = Process::new(name, Some(Arc::downgrade(&kproc)), proc_vm, proc_data);
+        let proc = Process::new(name, parent, proc_vm, proc_data);
 
-        // alloc stack for the new process base on pid
-        let stack_top = proc.alloc_init_stack();
+        let mut inner = proc.write();
+        // FIXED: load elf to process pagetable
+        let physical_offset = *PHYSICAL_OFFSET.get().unwrap();
+        {
+            let frame_alloc = &mut *get_frame_alloc_for_sure();
+            let mut mapper = inner.vm_mut().page_table.mapper();
+            load_elf(elf, physical_offset, &mut mapper, frame_alloc, true).expect("Failed to load ELF");
+        }
+        // FIXED: alloc new stack for process
+        let stack_top = inner.vm_mut().init_proc_stack(proc.pid());
+        let entry = VirtAddr::new(elf.header.pt2.entry_point());
+        inner.init_context(entry, stack_top);
 
-        // FIXED: set the stack frame
-        proc.write().init_context(entry, stack_top);
+        drop(inner);
 
-        // FIXED: add to process map
-        self.add_proc(proc.pid(), proc.clone());
+        trace!("New {:#?}", &proc);
 
-        // FIXED: push to ready queue
-        self.push_ready(proc.pid());
+        let pid = proc.pid();
+        // FIXED: something like kernel thread
+        self.add_proc(pid, proc.clone());
+        self.push_ready(pid);
 
-        // FIXED: return new process pid
-        proc.pid()
+        pid
     }
 
     pub fn kill_current(&self, ret: isize) {

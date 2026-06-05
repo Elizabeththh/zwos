@@ -32,27 +32,27 @@ pub const fn get_ascii_header() -> &'static str {
     )
 }
 
-pub fn new_test_thread(id: &str) -> ProcessId {
-    let mut proc_data = ProcessData::new();
-    proc_data.set_env("id", id);
+// pub fn new_test_thread(id: &str) -> ProcessId {
+//     let mut proc_data = ProcessData::new();
+//     proc_data.set_env("id", id);
 
-    spawn_kernel_thread(
-        utils::func::test,
-        format!("#{}_test", id),
-        Some(proc_data),
-    )
-}
+//     spawn_kernel_thread(
+//         utils::func::test,
+//         format!("#{}_test", id),
+//         Some(proc_data),
+//     )
+// }
 
-pub fn new_stack_test_thread() {
-    let pid = spawn_kernel_thread(
-        utils::func::stack_test,
-        alloc::string::String::from("stack"),
-        None,
-    );
+// pub fn new_stack_test_thread() {
+//     let pid = spawn_kernel_thread(
+//         utils::func::stack_test,
+//         alloc::string::String::from("stack"),
+//         None,
+//     );
 
-    // wait for progress exit
-    wait(pid);
-}
+//     // wait for progress exit
+//     wait(pid);
+// }
 
 fn wait(pid: ProcessId) {
     loop {

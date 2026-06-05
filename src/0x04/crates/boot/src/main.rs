@@ -15,6 +15,7 @@ use ysos_boot::{config::Config, *};
 mod config;
 
 const CONFIG_PATH: &str = "\\EFI\\BOOT\\boot.conf";
+const APP_PATH: &str = "\\EFI\\APP";
 
 #[entry]
 fn efi_main() -> Status {
@@ -23,7 +24,7 @@ fn efi_main() -> Status {
     log::set_max_level(log::LevelFilter::Info);
     info!("Running UEFI bootloader...");
 
-    // 1. Load config
+    // Load config
     let config = {
         let mut file = open_file(CONFIG_PATH);
         let buf = load_file(&mut file);
@@ -32,7 +33,7 @@ fn efi_main() -> Status {
 
     info!("Config: {:#x?}", config);
 
-    // 2. Load ELF files
+    // Load ELF files
     let elf = {
         let mut file = open_file(config.kernel_path);
         let buf = load_file(&mut file);
@@ -41,7 +42,15 @@ fn efi_main() -> Status {
 
     set_entry(elf.header.pt2.entry_point() as usize);
 
-    // 3. Load MemoryMap
+    // Load APPs
+    let apps = if config.load_apps {
+        info!("Loading apps");
+        Some(load_apps())
+    } else {
+        None
+    };
+
+    // Load MemoryMap
     let mmap = uefi::boot::memory_map(MemoryType::LOADER_DATA).expect("Failed to get memory map");
 
     let max_phys_addr = mmap
@@ -51,10 +60,10 @@ fn efi_main() -> Status {
         .unwrap()
         .max(0x1_0000_0000); // include IOAPIC MMIO area
 
-    // 4. Map ELF segments, kernel stack and physical memory to virtual memory
+    // Map ELF segments, kernel stack and physical memory to virtual memory
     let mut page_table = current_page_table();
 
-    //5. Set Kernel log level
+    //Set Kernel log level
     let kernel_log_level = config.log_level;
 
     // root page table is readonly, disable write protect (Cr0)
@@ -66,7 +75,7 @@ fn efi_main() -> Status {
     map_physical_memory(config.physical_memory_offset, max_phys_addr, &mut page_table, &mut UEFIFrameAllocator);
 
     // load and map the kernel elf file
-    let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator);
+    let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator, false);
 
     // map kernel stack
     elf::map_range(config.kernel_stack_addr, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
@@ -77,11 +86,11 @@ fn efi_main() -> Status {
     }
     free_elf(elf);
 
-    // 6. Pass system table to kernel
+    // Pass system table to kernel
     let ptr = uefi::table::system_table_raw().expect("Failed to get system table");
     let system_table = ptr.cast::<core::ffi::c_void>();
 
-    // 7. Exit boot and jump to ELF entry
+    // Exit boot and jump to ELF entry
     info!("Exiting boot services...");
 
     let mmap = unsafe { uefi::boot::exit_boot_services(None) };
@@ -98,6 +107,7 @@ fn efi_main() -> Status {
         stack_default_page: config.stack_default_page,
         system_table,
         log_level: kernel_log_level,
+        loaded_apps: apps
     };
 
     // align stack to 8 bytes

@@ -45,7 +45,7 @@ pub fn init(boot_info: &'static BootInfo) {
     memory::gdt::init(); // init gdt
     memory::allocator::init(); // init kernel heap allocator
     proc::vm::stack::consts_init(boot_info); // init stack constances
-    proc::init();
+    proc::init(boot_info);
     interrupt::init(); // init interrupts
     memory::init(boot_info); // init memory manager
 
