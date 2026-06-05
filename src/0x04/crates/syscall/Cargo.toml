@@ -3,4 +3,5 @@ edition.workspace = true
 name              = "ysos_syscall"
 version.workspace = true
 [dependencies]
-num_enum = { workspace = true }
+num_enum    = { workspace = true }
+syscall_def = { workspace = true }
