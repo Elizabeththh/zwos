@@ -1,6 +1,7 @@
 use alloc::{format, sync::{Arc, Weak}, vec::Vec};
 
 use spin::*;
+use x86_64::structures::paging::mapper::UnmapError;
 
 use super::*;
 use crate::proc;
@@ -76,7 +77,7 @@ impl Process {
         })
     }
 
-    pub fn kill(&self, ret: isize) {
+    pub fn kill(&self, ret: isize){
         let mut inner = self.inner.write();
 
         debug!(
@@ -156,18 +157,28 @@ impl ProcessInner {
         self.resume();
     }
 
+    fn dealloc_stack_page(&mut self) -> Result<(), UnmapError>{
+        self.vm_mut().dealloc_proc_stack()?;
+        Ok(())
+    }
+
     pub fn parent(&self) -> Option<Arc<Process>> {
         self.parent.as_ref().and_then(|p| p.upgrade())
     }
 
-    pub fn kill(&mut self, ret: isize) {
+    pub fn kill(&mut self, ret: isize){
         // FIXED: set exit code
         self.exit_code = Some(ret);
         // FIXED: set status to dead
         self.status = proc::ProgramStatus::Dead;
-        // FIXED: take and drop unused resources
+        
+        // TODO dealloc page table stack and code segment
+        if let Err(_) = self.dealloc_stack_page() {
+            println!("Unmap stack pages failed when killing process#{}", self.name);
+        }           // FIXED: take and drop unused resources
         self.proc_data.take();
         self.proc_vm.take();
+
     }
 
     pub fn init_context(&mut self, entry: VirtAddr, stack_top: VirtAddr) {

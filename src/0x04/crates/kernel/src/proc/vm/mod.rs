@@ -1,8 +1,9 @@
 use alloc::format;
 
+use elf::unmap_range;
 use x86_64::{
     VirtAddr,
-    structures::paging::*,
+    structures::paging::{mapper::UnmapError, *},
 };
 
 use crate::{humanized_size, memory::*};
@@ -72,6 +73,18 @@ impl ProcessVm {
 
     pub(super) fn memory_usage(&self) -> u64 {
         (self.code_pages_usage + self.stack.usage) * PAGE_SIZE
+    }
+
+    pub fn dealloc_proc_stack(&mut self) -> Result<(), UnmapError>{
+        let frame_allocator = &mut *get_frame_alloc_for_sure();
+        let mut mapper = self.page_table.mapper();
+        let range = self.stack.range;
+        let addr = range.start.start_address().as_u64();
+        let count = self.stack.usage;
+
+        unmap_range(addr, count, &mut mapper, frame_allocator)?;
+        self.stack = Stack::empty();
+        Ok(())
     }
 
 }
