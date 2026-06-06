@@ -157,7 +157,8 @@ impl ProcessManager {
         {
             let frame_alloc = &mut *get_frame_alloc_for_sure();
             let mut mapper = inner.vm_mut().page_table.mapper();
-            load_elf(elf, physical_offset, &mut mapper, frame_alloc, true).expect("Failed to load ELF");
+            let code_pages = load_elf(elf, physical_offset, &mut mapper, frame_alloc, true).expect("Failed to load ELF");
+            inner.vm_mut().set_code_pages_usage(code_pages);
         }
         // FIXED: alloc new stack for process
         let stack_top = inner.vm_mut().init_proc_stack(proc.pid());
@@ -219,7 +220,7 @@ impl ProcessManager {
     }
 
     pub fn print_process_list(&self) {
-        let mut output = String::from("  PID | PPID | Process Name |  Ticks  | Status\n");
+        let mut output = String::from("  PID | PPID | Process Name |  Ticks  | Status | Memory\n");
 
         self.processes
             .read()

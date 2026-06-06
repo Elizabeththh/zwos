@@ -50,6 +50,8 @@ pub fn init(boot_info: &'static boot::BootInfo) {
         Process::new(String::from("kernel"), None, Some(proc_vm), Some(proc_dt))
     };
 
+    kproc.write().vm_mut().set_code_pages_usage(boot_info.kernel_pages_usage);
+
     let app_list = boot_info.loaded_apps.as_ref();
     manager::init(kproc, app_list);
 

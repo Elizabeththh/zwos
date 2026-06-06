@@ -22,7 +22,7 @@ impl ProcessData {
     pub fn new() -> Self {
         Self {
             env: Arc::new(RwLock::new(HashMap::default())),
-            resources: Arc::new(RwLock::new(ResourceSet::default()))
+            resources: Arc::new(RwLock::new(ResourceSet::default())),
         }
     }
 
@@ -41,4 +41,5 @@ impl ProcessData {
     pub fn set_env(&mut self, key: &str, val: &str) {
         self.env.write().insert(key.into(), val.into());
     }
+
 }

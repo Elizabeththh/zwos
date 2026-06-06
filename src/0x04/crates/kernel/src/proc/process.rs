@@ -1,9 +1,10 @@
-use alloc::{sync::{Arc, Weak}, vec::Vec};
+use alloc::{format, sync::{Arc, Weak}, vec::Vec};
 
 use spin::*;
 
 use super::*;
 use crate::proc;
+use crate::humanized_size;
 
 pub struct Process {
     pid: ProcessId,
@@ -220,14 +221,19 @@ impl core::fmt::Debug for Process {
 impl core::fmt::Display for Process {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let inner = self.inner.read();
+        let mem_str = inner.proc_vm.as_ref().map(|vm| {
+            let (size, unit) = humanized_size(vm.memory_usage());
+            format!("{:.3} {}", size, unit)
+        }).unwrap_or_default();
         write!(
             f,
-            " #{:-3} | #{:-3} | {:12} | {:7} | {:?}",
+            " #{:-3} | #{:-3} | {:12} | {:7} | {:?} | {}",
             self.pid.0,
             inner.parent().map(|p| p.pid.0).unwrap_or(0),
             inner.name,
             inner.ticks_passed,
-            inner.status
+            inner.status,
+            mem_str
         )?;
         Ok(())
     }

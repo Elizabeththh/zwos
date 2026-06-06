@@ -59,6 +59,9 @@ pub struct BootInfo {
     // kernel log level
     pub log_level: &'static str,
 
+    // kernel pages usage
+    pub kernel_pages_usage: u64,
+
     pub loaded_apps: Option<AppList>,
 }
 

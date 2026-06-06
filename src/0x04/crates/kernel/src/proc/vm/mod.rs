@@ -20,6 +20,9 @@ pub struct ProcessVm {
 
     // stack is pre-process allocated
     pub(super) stack: Stack,
+
+    // code segment pages usage (ELF LOAD segments)
+    pub(super) code_pages_usage: u64,
 }
 
 impl ProcessVm {
@@ -27,13 +30,19 @@ impl ProcessVm {
         Self {
             page_table,
             stack: Stack::empty(),
+            code_pages_usage: 0,
         }
     }
 
     pub fn init_kernel_vm(mut self) -> Self {
         // TODO: record kernel code usage
         self.stack = Stack::kstack();
+        self.code_pages_usage = 0;
         self
+    }
+
+    pub fn set_code_pages_usage(&mut self, usage: u64) {
+        self.code_pages_usage = usage;
     }
 
     pub fn init_proc_stack(&mut self, pid: ProcessId) -> VirtAddr {
@@ -62,7 +71,7 @@ impl ProcessVm {
     }
 
     pub(super) fn memory_usage(&self) -> u64 {
-        self.stack.memory_usage()
+        (self.code_pages_usage + self.stack.usage) * PAGE_SIZE
     }
 
 }
@@ -73,6 +82,7 @@ impl core::fmt::Debug for ProcessVm {
 
         f.debug_struct("ProcessVm")
             .field("stack", &self.stack)
+            .field("code_pages", &self.code_pages_usage)
             .field("memory_usage", &format!("{} {}", size, unit))
             .field("page_table", &self.page_table)
             .finish()

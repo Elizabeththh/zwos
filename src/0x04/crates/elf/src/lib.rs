@@ -93,18 +93,19 @@ pub fn load_elf(
     page_table: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     user_access: bool,
-) -> Result<(), MapToError<Size4KiB>> {
+) -> Result<u64, MapToError<Size4KiB>> {
     trace!("Loading ELF file...{:?}", elf.input.as_ptr());
 
+    let mut pages_counter = 0;
     for segment in elf.program_iter() {
         if segment.get_type().unwrap() != program::Type::Load {
             continue;
         }
 
-        load_segment(elf, physical_offset, &segment, page_table, frame_allocator, user_access)?
+        pages_counter += load_segment(elf, physical_offset, &segment, page_table, frame_allocator, user_access)?;
     }
 
-    Ok(())
+    Ok(pages_counter)
 }
 
 /// Load & Map ELF segment
@@ -117,13 +118,15 @@ fn load_segment(
     page_table: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     user_access: bool,
-) -> Result<(), MapToError<Size4KiB>> {
+) -> Result<u64, MapToError<Size4KiB>> {
     trace!("Loading & mapping segment: {:#x?}", segment);
 
     let mem_size = segment.mem_size();
     let file_size = segment.file_size();
     let file_offset = segment.offset() & !0xfff;
     let virt_start_addr = VirtAddr::new(segment.virtual_addr());
+
+    let mut pages_counter = 0;
 
     let mut page_table_flags = PageTableFlags::PRESENT;
     if user_access {
@@ -147,6 +150,7 @@ fn load_segment(
     let start_page = Page::containing_address(virt_start_addr);
     let end_page = Page::containing_address(virt_start_addr + file_size - 1u64);
     let pages = Page::range_inclusive(start_page, end_page);
+    pages_counter += pages.len();
 
     let data = unsafe { elf.input.as_ptr().add(file_offset as usize) };
 
@@ -197,8 +201,10 @@ fn load_segment(
         let start_address = VirtAddr::new(align_up(zero_start.as_u64(), Size4KiB::SIZE));
         let start_page: Page = Page::containing_address(start_address);
         let end_page = Page::containing_address(zero_end);
+        let pages = Page::range_inclusive(start_page, end_page);
+        pages_counter += pages.len();
 
-        for page in Page::range_inclusive(start_page, end_page) {
+        for page in pages {
             let frame = frame_allocator
                 .allocate_frame()
                 .ok_or(MapToError::FrameAllocationFailed)?;
@@ -218,5 +224,5 @@ fn load_segment(
         }
     }
 
-    Ok(())
+    Ok(pages_counter)
 }
