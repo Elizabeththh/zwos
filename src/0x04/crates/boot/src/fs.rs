@@ -112,13 +112,8 @@ pub fn load_apps() -> AppList {
 
                 let mut file = match file {
                     FileType::Regular(regular) => regular,
-                    _ => panic!("App entry is not a regular file"),
+                    _ => continue
                 };
-
-
-                if file.is_directory().unwrap_or(true) {
-                    continue;
-                }
 
                 let elf = {
                     // FIXED: load file with `load_file` function

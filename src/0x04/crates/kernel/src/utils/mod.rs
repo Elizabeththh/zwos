@@ -6,11 +6,11 @@ mod regs;
 pub mod func;
 pub mod logger;
 
-use alloc::format;
 pub use macros::*;
 pub use regs::*;
+pub mod resource;
 
-use crate::{proc::*, utils};
+use crate::proc::*;
 
 pub const fn get_ascii_header() -> &'static str {
     concat!(

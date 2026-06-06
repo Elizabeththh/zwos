@@ -3,7 +3,7 @@ use crossbeam_queue::ArrayQueue;
 type Key = u8;
 
 lazy_static! {
-    static ref INPUT_BUF: ArrayQueue<Key> = ArrayQueue::new(128);
+    pub static ref INPUT_BUF: ArrayQueue<Key> = ArrayQueue::new(128);
 }
 
 #[inline]

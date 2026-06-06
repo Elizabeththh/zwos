@@ -33,6 +33,8 @@ pub use alloc::format;
 use boot::BootInfo;
 use uefi::{Status, runtime::ResetType};
 
+use crate::memory::user;
+
 pub fn init(boot_info: &'static BootInfo) {
     unsafe {
         // set uefi system table
@@ -48,11 +50,23 @@ pub fn init(boot_info: &'static BootInfo) {
     proc::init(boot_info);
     interrupt::init(); // init interrupts
     memory::init(boot_info); // init memory manager
+    user::init(); // init user heap alloc
 
     x86_64::instructions::interrupts::enable();
     info!("Interrupts Enabled.");
 
     info!("YatSenOS initialized.");
+}
+
+pub fn wait(init: proc::ProcessId) {
+    loop {
+        if proc::still_alive(init) {
+            // Why? Check reflection question 5
+            x86_64::instructions::hlt();
+        } else {
+            break;
+        }
+    }
 }
 
 pub fn shutdown() -> ! {

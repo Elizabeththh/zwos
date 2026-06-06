@@ -37,9 +37,9 @@ impl ProcessManager {
         let mut processes = HashMap::default();
         let ready_queue = VecDeque::new();
         let pid = init.pid();
-
+        
         trace!("Init {:#?}", init);
-
+        
         processes.insert(pid, init);
         Self {
             processes: RwLock::new(processes),
@@ -47,20 +47,25 @@ impl ProcessManager {
             app_list,
         }
     }
-
+    
     #[inline]
     pub fn push_ready(&self, pid: ProcessId) {
         self.ready_queue.lock().push_back(pid);
     }
-
+    
     #[inline]
     fn add_proc(&self, pid: ProcessId, proc: Arc<Process>) {
         self.processes.write().insert(pid, proc);
     }
-
+    
     #[inline]
     pub(super) fn get_proc(&self, pid: &ProcessId) -> Option<Arc<Process>> {
         self.processes.read().get(pid).cloned()
+    }
+    
+    pub fn current(&self) -> Arc<Process> {
+        self.get_proc(&processor::get_pid())
+            .expect("No current process")
     }
 
     #[inline]
@@ -68,10 +73,19 @@ impl ProcessManager {
         self.app_list
     }
 
-    pub fn current(&self) -> Arc<Process> {
-        self.get_proc(&processor::get_pid())
-            .expect("No current process")
+    #[inline]
+    pub(super) fn proc_status(&self, pid: ProcessId) ->  ProgramStatus {
+        self.get_proc(&pid).unwrap().read().status()
     }
+
+    pub fn read(&self, fd: u8, buf: &mut [u8]) -> isize {
+        self.current().read().read(fd, buf)
+    }
+    
+    pub fn write(&self, fd: u8, buf: &[u8]) -> isize {
+        self.current().read().write(fd, buf)
+    }
+
 
     pub fn save_current(&self, context: &ProcessContext) {
         // FIXED: update current process's tick count
@@ -164,6 +178,15 @@ impl ProcessManager {
 
     pub fn kill_current(&self, ret: isize) {
         self.kill(processor::get_pid(), ret);
+    }
+
+    pub fn proc_exit_code(&self, pid: ProcessId) -> isize {
+        let proc = self.get_proc(&pid).expect("Could not get process");
+        if let Some(exit_code) = proc.read().exit_code() {
+            exit_code
+        } else {
+            -1
+        }
     }
 
     pub fn handle_page_fault(&self, addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {

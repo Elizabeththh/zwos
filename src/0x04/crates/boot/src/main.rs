@@ -15,8 +15,6 @@ use ysos_boot::{config::Config, *};
 mod config;
 
 const CONFIG_PATH: &str = "\\EFI\\BOOT\\boot.conf";
-const APP_PATH: &str = "\\EFI\\APP";
-
 #[entry]
 fn efi_main() -> Status {
     uefi::helpers::init().expect("Failed to initialize utilities");

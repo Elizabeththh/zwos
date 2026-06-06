@@ -141,6 +141,32 @@ pub fn env(key: &str) -> Option<String> {
     })
 }
 
+pub fn get_process_manager() -> &'static ProcessManager {
+    PROCESS_MANAGER.get().expect("Could not get Process Manager")
+}
+
+pub fn read(fd: u8, buf: &mut [u8]) -> isize {
+    x86_64::instructions::interrupts::without_interrupts(|| get_process_manager().read(fd, buf))
+}
+
+pub fn write(fd: u8, buf: &[u8]) -> isize {
+    x86_64::instructions::interrupts::without_interrupts(|| get_process_manager().write(fd, buf))
+}
+
+pub fn proc_exit_code(pid: ProcessId) -> isize {
+    get_process_manager().proc_exit_code(pid)
+}
+
+#[inline]
+pub fn still_alive(pid: ProcessId) -> bool {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let status = get_process_manager().proc_status(pid);
+        match status {
+            ProgramStatus::Dead => false,
+            _ => true
+        }
+    })
+}
 pub fn process_exit(ret: isize) -> ! {
     x86_64::instructions::interrupts::without_interrupts(|| {
         get_process_manager().kill_current(ret);
@@ -169,5 +195,14 @@ pub fn current_process_name_safe() -> Option<String> {
 pub fn handle_page_fault(addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
     x86_64::instructions::interrupts::without_interrupts(|| {
         get_process_manager().handle_page_fault(addr, err_code)
+    })
+}
+
+pub fn exit(ret: isize, context: &mut ProcessContext) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        // FIXED: implement this for ProcessManager
+        manager.kill_current(ret);
+        manager.switch_next(context);
     })
 }
