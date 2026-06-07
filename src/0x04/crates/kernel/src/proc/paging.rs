@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::{clone, ptr::copy_nonoverlapping};
+use core::ptr::copy_nonoverlapping;
 
 use x86_64::{
     VirtAddr,
