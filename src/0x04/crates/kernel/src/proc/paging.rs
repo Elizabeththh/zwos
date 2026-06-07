@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::ptr::copy_nonoverlapping;
+use core::{clone, ptr::copy_nonoverlapping};
 
 use x86_64::{
     VirtAddr,
@@ -70,6 +70,10 @@ impl PageTableContext {
                 VirtAddr::new_truncate(*PHYSICAL_OFFSET.get().unwrap()),
             )
         }
+    }
+
+    pub fn fork(&self) -> PageTableContext {
+        self.clone_level_4()
     }
 }
 

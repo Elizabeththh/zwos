@@ -15,17 +15,17 @@ impl Stdin {
     }
 
     pub fn read_line(&self) -> String {
-        // FIXME: allocate string
+        // FIXED: allocate string
         let mut line = String::with_capacity(128);
         let mut buf = [0u8, 1];
 
         loop {
-            // FIXME: read from input buffer
+            // FIXED: read from input buffer
             //       - maybe char by char?
             match sys_read(0, &mut buf) {
                 Some(n) if n > 0 => {
                     let c = buf[0];
-                    // FIXME: handle backspace / enter...
+                    // FIXED: handle backspace / enter...
                     if c == 0x08 || c == 0x7f {
                         if line.pop().is_some() {
                             self::print!("\x08 \x08");
@@ -33,7 +33,7 @@ impl Stdin {
                         continue;
                     }
 
-                    // FIXME: return string
+                    // FIXED: return string
                     if c == b'\n' || c == b'\r' {
                         self::println!();
                         return line;

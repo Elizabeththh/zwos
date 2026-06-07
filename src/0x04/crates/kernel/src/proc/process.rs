@@ -4,7 +4,7 @@ use spin::*;
 use x86_64::structures::paging::mapper::UnmapError;
 
 use super::*;
-use crate::proc;
+use crate::proc::{self, ProgramStatus::Ready, vm::stack::STACK_CONSTS};
 use crate::humanized_size;
 
 pub struct Process {
@@ -92,6 +92,30 @@ impl Process {
 
     pub fn alloc_init_stack(&self) -> VirtAddr {
         self.write().vm_mut().init_proc_stack(self.pid)
+    }
+
+    pub fn fork(self: &Arc<Self>) -> Arc<Self> {
+        let parent = Arc::downgrade(self);
+        let child_pid = ProcessId::new();
+        
+        // FIXED: lock inner as write
+        let mut inner = self.write();
+        let stack_offset_count = (child_pid.0 - self.pid().0) as u64;
+        // FIXED: inner fork with parent weak ref
+        let child_inner = inner.fork(parent, stack_offset_count);
+
+        // FOR DBG: maybe print the child process info
+        //          e.g. parent, name, pid, etc.
+
+        // FIXED: make the arc of child
+        let child_proc = Arc::new(Self {pid: child_pid, inner: RwLock::new(child_inner)});
+        // FIXED: add child to current process's children list
+        inner.children.push(child_proc.clone());
+        // FIXED: set fork ret value for parent with `context.set_rax`
+        inner.context.set_rax(child_pid.0 as usize);
+        // FIXED: mark the child as ready & return it
+        child_proc.write().status = Ready;
+        child_proc
     }
 }
 
@@ -183,6 +207,43 @@ impl ProcessInner {
 
     pub fn init_context(&mut self, entry: VirtAddr, stack_top: VirtAddr) {
         self.context.init_stack_frame(entry, stack_top);
+    }
+
+    pub fn fork(&mut self, parent: Weak<Process>, stack_offset_count: u64) -> ProcessInner {
+        // FIXED: fork the process virtual memory struct
+        let child_vm = self.vm().fork(stack_offset_count);
+
+        let mut child_ctx_value = self.context.as_ref().as_ptr().read();
+        
+        let consts = STACK_CONSTS.wait();
+        let stack_offset_bytes = stack_offset_count * consts.stack_max_size;
+        
+        // FIXED: update `rsp` in interrupt stack frame
+        child_ctx_value.stack_frame.stack_pointer = VirtAddr::new(child_ctx_value.stack_frame.stack_pointer.as_u64() - stack_offset_bytes);
+
+        // FIXED: set the return value 0 for child with `context.set_rax`
+        child_ctx_value.regs.rax = 0;
+
+        let mut child_context = ProcessContext::default();
+        child_context.as_mut().as_mut_ptr().write(child_ctx_value);
+
+        // FIXED: clone the process data struct
+        let child_data = self.proc_data.as_ref().unwrap().clone();
+
+        // FIXED: construct the child process inner
+        ProcessInner {
+            name: self.name.clone(),
+            parent: Some(parent),
+            children: Vec::new(),
+            ticks_passed: 0,
+            status: ProgramStatus::Ready,
+            context: child_context,
+            exit_code: None,
+            proc_vm: Some(child_vm),
+            proc_data: Some(child_data),
+        }
+
+        // NOTE: return inner because there's no pid record in inner
     }
 }
 

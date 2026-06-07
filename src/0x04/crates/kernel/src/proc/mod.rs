@@ -208,3 +208,20 @@ pub fn exit(ret: isize, context: &mut ProcessContext) {
         manager.switch_next(context);
     })
 }
+
+pub fn fork(context: &mut ProcessContext) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        // FIXED: save_current as parent
+        let parent = manager.current();
+        manager.save_current(context);
+        // FIXED: fork to get child
+        let child_pid = manager.fork();
+        // FIXED: push child & parent to ready queue
+        manager.push_ready(child_pid);
+        parent.write().pause();
+        manager.push_ready(parent.pid());
+        // FIXED: switch to next process
+        manager.switch_next(context);
+    })
+}

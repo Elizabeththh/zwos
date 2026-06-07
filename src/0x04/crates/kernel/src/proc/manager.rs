@@ -236,4 +236,16 @@ impl ProcessManager {
 
         print!("{}", output);
     }
+
+    pub fn fork(&self) -> ProcessId {
+        // FIXED: get current process
+        let proc = self.current();
+        // FIXED: fork to get child
+        let child_proc = proc.fork();
+        // FIXED: add child to process list
+        self.add_proc(child_proc.pid(), child_proc.clone());
+        
+        // FOR DBG: maybe print the process ready queue?
+        child_proc.pid()
+    }
 }

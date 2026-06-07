@@ -1,3 +1,5 @@
+use core::ptr::copy_nonoverlapping;
+
 use boot::BootInfo;
 use x86_64::{
     VirtAddr,
@@ -205,6 +207,46 @@ impl Stack {
     pub fn memory_usage(&self) -> u64 {
         self.usage * PAGE_SIZE
     }
+
+    pub fn fork(
+        &self,
+        mapper: MapperRef,
+        alloc: FrameAllocatorRef,
+        stack_offset_count: u64,
+    ) -> Self {
+        let consts = STACK_CONSTS.wait();
+        let stack_offset_bytes = stack_offset_count * consts.stack_max_size;
+
+        let child_stack_bot = self.range.start.start_address().as_u64() - stack_offset_bytes;
+
+        // FIXED: alloc & map new stack for child (see instructions)
+        let child_range = elf::map_range(child_stack_bot, self.usage, mapper, alloc, true).expect("Failed to map child stack");
+
+        // FIXED: copy the *entire stack* from parent to child
+        self.clone_range(self.range.start.start_address().as_u64(), child_stack_bot, self.usage);
+
+        // FIXED: return the new stack
+        Self {
+            range: child_range,
+            usage: self.usage,
+        }
+    }
+
+    /// Clone a range of memory
+    ///
+    /// - `src_addr`: the address of the source memory
+    /// - `dest_addr`: the address of the target memory
+    /// - `size`: the count of pages to be cloned
+    fn clone_range(&self, cur_addr: u64, dest_addr: u64, size: u64) {
+        trace!("Clone range: {:#x} -> {:#x}", cur_addr, dest_addr);
+        unsafe {
+            copy_nonoverlapping::<u64>(
+                cur_addr as *mut u64,
+                dest_addr as *mut u64,
+                (size * Size4KiB::SIZE / 8) as usize,
+            );
+        }
+}
 }
 
 impl core::fmt::Debug for Stack {

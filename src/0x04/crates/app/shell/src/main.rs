@@ -48,7 +48,9 @@ fn main() -> isize {
                 sys_wait_pid(pid);
             }
             Ok(Command::Test) => {
-                let pid = sys_spawn("test_app");
+                // let pid = sys_spawn("test_app");
+                // sys_wait_pid(pid);
+                let pid = sys_spawn("test_fork");
                 sys_wait_pid(pid);
             }
             Ok(Command::Help) => {
