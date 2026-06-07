@@ -29,6 +29,7 @@ pub fn get_process_manager() -> &'static ProcessManager {
 pub struct ProcessManager {
     processes: RwLock<HashMap<ProcessId, Arc<Process>, ahash::RandomState>>,
     ready_queue: Mutex<VecDeque<ProcessId>>,
+    wait_queue: Mutex<HashMap<ProcessId, BTreeSet<ProcessId>, ahash::RandomState>>,
     app_list: AppListRef,
 }
 
@@ -36,6 +37,7 @@ impl ProcessManager {
     pub fn new(init: Arc<Process>, app_list: boot::AppListRef) -> Self {
         let mut processes = HashMap::default();
         let ready_queue = VecDeque::new();
+        let wait_queue = HashMap::default();
         let pid = init.pid();
         
         trace!("Init {:#?}", init);
@@ -44,6 +46,7 @@ impl ProcessManager {
         Self {
             processes: RwLock::new(processes),
             ready_queue: Mutex::new(ready_queue),
+            wait_queue: Mutex::new(wait_queue),
             app_list,
         }
     }
@@ -86,6 +89,13 @@ impl ProcessManager {
         self.current().read().write(fd, buf)
     }
 
+    /// Block the process with the given pid
+    pub fn block(&self, pid: ProcessId) {
+        if let Some(proc) = self.get_proc(&pid) {
+            // FIXED: set the process as blocked
+            proc.write().block();
+        }
+    }
 
     pub fn save_current(&self, context: &ProcessContext) {
         // FIXED: update current process's tick count
@@ -181,13 +191,9 @@ impl ProcessManager {
         self.kill(processor::get_pid(), ret);
     }
 
-    pub fn proc_exit_code(&self, pid: ProcessId) -> isize {
+    pub fn proc_exit_code(&self, pid: ProcessId) -> Option<isize> {
         let proc = self.get_proc(&pid).expect("Could not get process");
-        if let Some(exit_code) = proc.read().exit_code() {
-            exit_code
-        } else {
-            -1
-        }
+        proc.read().exit_code()
     }
 
     pub fn handle_page_fault(&self, addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
@@ -196,6 +202,32 @@ impl ProcessManager {
             self.current().write().handle_page_fault(addr)
         } else {
             false
+        }
+    }
+
+    pub fn wait_pid(&self, pid: ProcessId) {
+        let mut wait_queue = self.wait_queue.lock();
+        // FIXED: push the current process to the wait queue
+        //        `processor::get_pid()` is waiting for `pid`
+        let entry = wait_queue.entry(pid).or_default();
+        entry.insert(self.current().pid());
+    }
+
+    /// Wake up the process with the given pid
+    ///
+    /// If `ret` is `Some`, set the return value of the process
+    pub fn wake_up(&self, pid: ProcessId, ret: Option<isize>) {
+        if let Some(proc) = self.get_proc(&pid) {
+            let mut inner = proc.write();
+            if let Some(ret) = ret {
+                // FIXME: set the return value of the process
+                //        like `context.set_rax(ret as usize)`
+                inner.set_return_code(ret as usize);
+            }
+            // FIXED: set the process as ready
+            inner.pause();
+            // FIXED: push to ready queue
+            self.push_ready(pid);
         }
     }
 
@@ -217,6 +249,12 @@ impl ProcessManager {
         trace!("Kill {:#?}", &proc);
 
         proc.kill(ret);
+
+        if let Some(pids) = self.wait_queue.lock().remove(&pid) {
+            for pid in pids {
+                self.wake_up(pid, Some(ret));
+            }
+        }
     }
 
     pub fn print_process_list(&self) {

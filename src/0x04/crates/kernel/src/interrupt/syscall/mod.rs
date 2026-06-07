@@ -80,11 +80,7 @@ pub fn dispatcher(context: &mut ProcessContext) {
         }
         // pid: arg0 as u16 -> status: isize
         Syscall::WaitPid => { /* FIXED: check if the process is running or get retcode */
-            let ret = proc_exit_code(ProcessId(args.arg0 as u16));
-            context.set_rax(ret as usize);
-            if ret == -1 {
-                proc::switch(context);
-            }
+            proc::wait_pid(ProcessId(args.arg0 as u16), context);
         }
 
         Syscall::Time => {

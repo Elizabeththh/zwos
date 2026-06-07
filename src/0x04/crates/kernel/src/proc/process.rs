@@ -140,6 +140,10 @@ impl ProcessInner {
         self.status = ProgramStatus::Running;
     }
 
+    pub fn block(&mut self) {
+        self.status = ProgramStatus::Blocked;
+    }
+
     pub fn exit_code(&self) -> Option<isize> {
         self.exit_code
     }
@@ -203,6 +207,10 @@ impl ProcessInner {
         self.proc_data.take();
         self.proc_vm.take();
 
+    }
+
+    pub fn set_return_code(&mut self, value: usize) {
+        self.context.set_rax(value);
     }
 
     pub fn init_context(&mut self, entry: VirtAddr, stack_top: VirtAddr) {

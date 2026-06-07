@@ -15,6 +15,7 @@ enum Command {
     Clear,
     Exit,
     Time,
+    Shell,
 }
 
 impl FromStr for Command {
@@ -30,6 +31,7 @@ impl FromStr for Command {
             "exit" => Ok(Command::Exit),
             "help" => Ok(Command::Help),
             "time" => Ok(Command::Time),
+            "sh" => Ok(Command::Shell),
             _ => Err(()),
         }        
     }
@@ -67,7 +69,11 @@ fn main() -> isize {
                 let pid = sys_spawn("time");
                 sys_wait_pid(pid);
             }
-            Err(_) => println!("Unknown command, Please retry\nAvailable ")
+            Ok(Command::Shell) => {
+                let pid = sys_spawn("shell");
+                sys_wait_pid(pid);
+            }
+            Err(_) => println!("Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit")
         }
         
     }
@@ -76,7 +82,7 @@ fn main() -> isize {
 
 fn help() {
     println!("Developed by lvzw, whose student ID is 24353028");
-    println!("Available Command: ps, ls, hello, test, clear, exit");
+    println!("Available Command: ps, ls, hello, test, clear, sh, time, exit");
 }
 
 entry!(main);

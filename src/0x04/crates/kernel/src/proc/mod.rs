@@ -155,7 +155,7 @@ pub fn write(fd: u8, buf: &[u8]) -> isize {
     x86_64::instructions::interrupts::without_interrupts(|| get_process_manager().write(fd, buf))
 }
 
-pub fn proc_exit_code(pid: ProcessId) -> isize {
+pub fn proc_exit_code(pid: ProcessId) -> Option<isize> {
     get_process_manager().proc_exit_code(pid)
 }
 
@@ -223,5 +223,19 @@ pub fn fork(context: &mut ProcessContext) {
         manager.push_ready(parent.pid());
         // FIXED: switch to next process
         manager.switch_next(context);
+    })
+}
+
+pub fn wait_pid(pid: ProcessId, context: &mut ProcessContext) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        if let Some(ret) = manager.proc_exit_code(pid) {
+            context.set_rax(ret as usize);
+        } else {
+            manager.wait_pid(pid);
+            manager.save_current(context);
+            manager.current().write().block();
+            manager.switch_next(context);
+        }
     })
 }
