@@ -1,0 +1,7 @@
+[package]
+name = "ysos_time"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+lib = { workspace = true }

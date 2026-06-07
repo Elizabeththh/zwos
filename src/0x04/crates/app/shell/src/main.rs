@@ -14,6 +14,7 @@ enum Command {
     Help,
     Clear,
     Exit,
+    Time,
 }
 
 impl FromStr for Command {
@@ -28,6 +29,7 @@ impl FromStr for Command {
             "clear" => Ok(Command::Clear),
             "exit" => Ok(Command::Exit),
             "help" => Ok(Command::Help),
+            "time" => Ok(Command::Time),
             _ => Err(()),
         }        
     }
@@ -58,6 +60,10 @@ fn main() -> isize {
             }
             Ok(Command::Clear) => {
                 print!("\x1b[2J\x1b[H");
+            }
+            Ok(Command::Time) => {
+                let pid = sys_spawn("time");
+                sys_wait_pid(pid);
             }
             Err(_) => println!("Unknown command, Please retry\nAvailable ")
         }

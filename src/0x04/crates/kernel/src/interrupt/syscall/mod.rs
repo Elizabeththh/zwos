@@ -83,6 +83,10 @@ pub fn dispatcher(context: &mut ProcessContext) {
             }
         }
 
+        Syscall::Time => {
+            context.set_rax(sys_get_time());
+        }
+
         // None
         Syscall::Stat => { /* FIXED: list processes */
             list_process();
@@ -91,10 +95,6 @@ pub fn dispatcher(context: &mut ProcessContext) {
         Syscall::ListApp => { /* FIXED: list available apps */
             list_app();
         }
-
-        // ----------------------------------------------------
-        // NOTE: following syscall examples are implemented
-        // ----------------------------------------------------
 
         // layout: arg0 as *const Layout -> ptr: *mut u8
         Syscall::Allocate => context.set_rax(sys_allocate(&args)),

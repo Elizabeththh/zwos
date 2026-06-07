@@ -5,3 +5,4 @@ version.workspace = true
 
 [dependencies]
 syscall_def = { workspace = true }
+chrono      = { workspace = true, features = ["alloc"] }

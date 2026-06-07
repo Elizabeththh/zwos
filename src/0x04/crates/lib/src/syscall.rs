@@ -48,6 +48,11 @@ pub fn sys_list_app() {
 }
 
 #[inline(always)]
+pub fn sys_get_time() -> usize {
+    syscall!(Syscall::Time)
+}
+
+#[inline(always)]
 pub fn sys_stat() {
     syscall!(Syscall::Stat);
 }
