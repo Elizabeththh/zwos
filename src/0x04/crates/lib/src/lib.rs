@@ -12,6 +12,7 @@ extern crate syscall_def;
 pub mod io;
 pub mod allocator;
 pub mod time;
+pub mod sync;
 pub use time::{sleep, print_time};
 pub extern crate alloc;
 

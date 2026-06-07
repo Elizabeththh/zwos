@@ -5,6 +5,7 @@ mod paging;
 mod pid;
 mod process;
 mod processor;
+mod sync;
 pub mod vm;
 
 use alloc::{string::{String, ToString}, sync::Arc, vec::Vec};
