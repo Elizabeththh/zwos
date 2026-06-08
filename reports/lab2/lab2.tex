@@ -1,0 +1,1057 @@
+%!TeX program = xelatex
+\documentclass{SYSUReport}
+
+% 根据个人情况修改
+\headl{实验二：中断处理}
+\headr{操作系统原理实验}
+\lessonTitle{操作系统原理实验}
+\reportTitle{实验二：中断处理}
+\inst{计算机学院}
+\major{保密管理}
+\stuname{吕梓文}
+\stuid{24353028}
+\date{\today}
+
+\AddEnumerateCounter{\chinese}{\chinese}{}
+\begin{document}
+
+\cover
+\updateheader{实验二：中断处理}
+\thispagestyle{empty} % 首页不显示页码
+\clearpage
+
+% \pagenumbering{Roman}
+% \setcounter{page}{1}
+% \tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\section{实验完成情况}
+
+\begin{itemize}
+    \item \textbf{必做实验内容}：全部完成
+    \begin{itemize}
+        \item GDT 与 TSS 实现（为 Double Fault 和 Page Fault 准备独立栈）
+        \item 注册中断处理程序（IDT 初始化）
+        \item 初始化 APIC（XAPIC 和 IOAPIC）
+        \item 时钟中断实现
+        \item 串口输入中断实现
+        \item 用户交互（输入缓冲区和命令行）
+    \end{itemize}
+    \item \textbf{加分项}：完成 4 项中的 3 项（除第 2 项外）
+    \begin{itemize}
+        \item 为全部可能的 CPU 异常设置处理程序
+        \item 使用 bitflags 和 bit\_field 定义 APIC 寄存器
+        \item 串口输入驱动支持中文和 emoji 输入
+    \end{itemize}
+\end{itemize}
+
+\section{GDT 与 TSS}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt]
+
+    \item \textbf{TSS 中断栈表实现}
+
+    在 x86\_64 架构中，TSS（Task State Segment）用于存储任务状态信息，其中 IST（Interrupt Stack Table）字段可以为特定的中断处理程序指定独立的栈空间。这是为了防止某些严重异常（如 Double Fault）发生时，由于当前栈已损坏而导致系统崩溃。
+
+    在 \texttt{src/memory/gdt.rs} 中，首先定义了两个常量来标识 IST 中的索引位置：
+
+    \begin{minted}{rust}
+pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
+pub const PAGE_FAULT_IST_INDEX: u16 = 1;
+
+pub const IST_SIZES: [usize; 3] = [0x1000, 0x1000, 0x1000];
+    \end{minted}
+
+    \texttt{DOUBLE\_FAULT\_IST\_INDEX} 设为 0，表示 Double Fault 处理程序将使用 IST 的第一个条目；\texttt{PAGE\_FAULT\_IST\_INDEX} 设为 1，表示 Page Fault 处理程序使用第二个条目。每个 IST 栈的大小为 4KB（\texttt{0x1000} 字节），这个大小足以容纳异常处理过程中的函数调用栈。
+
+    接下来使用 \texttt{lazy\_static} 宏定义全局静态的 TSS 结构体：
+
+    \begin{minted}{rust}
+lazy_static! {
+    static ref TSS: TaskStateSegment = {
+        let mut tss = TaskStateSegment::new();
+
+        // ... privilege_stack_table 初始化 ...
+
+        // Allocate IST stack for Double Fault
+        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = {
+            const STACK_SIZE: usize = IST_SIZES[0];
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(addr_of_mut!(STACK));
+            let stack_end = stack_start + STACK_SIZE as u64;
+            info!(
+                "DOUBLE FAULT IST  : 0x{:016x}-0x{:016x}",
+                stack_start.as_u64(),
+                stack_end.as_u64()
+            );
+            stack_end
+        };
+        
+        // Allocate IST stack for Page Fault
+        tss.interrupt_stack_table[PAGE_FAULT_IST_INDEX as usize] = {
+            const STACK_SIZE: usize = IST_SIZES[1];
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(addr_of_mut!(STACK));
+            let stack_end = stack_start + STACK_SIZE as u64;
+            info!(
+                "PAGE FAULT IST  : 0x{:016x}-0x{:016x}",
+                stack_start.as_u64(),
+                stack_end.as_u64()
+            );
+            stack_end
+        };
+
+        tss
+    };
+}
+    \end{minted}
+
+    这里需要注意几个关键点。首先，IST 栈使用静态缓冲区分配在 BSS 段，这是因为在内核启动早期，堆分配器尚未初始化，无法使用动态内存分配。其次，\texttt{tss.interrupt\_stack\_table} 存储的是栈顶地址而非栈底地址，这是因为 x86\_64 架构的栈是向下增长的，CPU 在切换栈时会直接使用这个值作为新的 RSP。
+
+    使用 \texttt{addr\_of\_mut!} 宏获取静态变量的地址是 Rust 中处理可变静态变量的安全方式，它避免了直接引用可变静态变量可能导致的未定义行为。
+
+    \item \textbf{GDT 初始化}
+
+    GDT（Global Descriptor Table）是 x86 架构中用于定义内存段属性的数据结构。在现代 64 位操作系统中，虽然段机制已被弱化，但 GDT 仍然需要存在，因为它还包含了 TSS 描述符。
+
+    \begin{minted}{rust}
+lazy_static! {
+    static ref GDT: (GlobalDescriptorTable, KernelSelectors) = {
+        let mut gdt = GlobalDescriptorTable::new();
+        let code_selector = gdt.append(Descriptor::kernel_code_segment());
+        let data_selector = gdt.append(Descriptor::kernel_data_segment());
+        let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
+        (
+            gdt,
+            KernelSelectors {
+                code_selector,
+                data_selector,
+                tss_selector,
+            },
+        )
+    };
+}
+    \end{minted}
+
+    GDT 中添加了三个描述符：内核代码段、内核数据段和 TSS 段。TSS 描述符是必需的，因为 CPU 需要通过 \texttt{LTR} 指令加载 TSS 选择子来激活 TSS。
+
+    GDT 的加载和段寄存器的设置在 \texttt{init} 函数中完成：
+
+    \begin{minted}{rust}
+pub fn init() {
+    use x86_64::{
+        PrivilegeLevel,
+        instructions::{
+            segmentation::{CS, DS, ES, FS, GS, SS},
+            tables::load_tss,
+        },
+    };
+
+    GDT.0.load();
+    unsafe {
+        CS::set_reg(GDT.1.code_selector);
+        DS::set_reg(GDT.1.data_selector);
+        SS::set_reg(SegmentSelector::new(0, PrivilegeLevel::Ring0));
+        ES::set_reg(SegmentSelector::new(0, PrivilegeLevel::Ring0));
+        FS::set_reg(SegmentSelector::new(0, PrivilegeLevel::Ring0));
+        GS::set_reg(SegmentSelector::new(0, PrivilegeLevel::Ring0));
+        load_tss(GDT.1.tss_selector);
+    }
+    // ...
+}
+    \end{minted}
+
+    这里需要按顺序执行：首先加载 GDT，然后更新各个段寄存器，最后加载 TSS。段寄存器的更新必须使用 \texttt{unsafe} 块，因为这会改变 CPU 的运行状态。需要注意的是，在 64 位模式下，CS、DS 等段寄存器的基址和限长实际上被忽略，但它们的值仍然需要正确设置以维持 CPU 的正常运行状态。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{local_apic_register.png}
+        \caption{内核启动输出 - GDT 和 IST 初始化}
+    \end{figure}
+
+    \item \textbf{思考题：TSS 栈空间不足的情况}
+
+    \textbf{【思考题 6】} 如果在 TSS 中为中断分配的栈空间不足，会发生什么情况？
+
+    当 IST 栈空间不足时，中断处理程序在执行过程中可能会发生栈溢出。由于 IST 栈是固定大小的静态缓冲区，如果中断处理程序需要更多的栈空间（例如深层函数调用、大量局部变量），就会覆盖相邻内存区域，导致数据损坏或系统崩溃。
+
+    在 CPU 异常发生过程中：
+    \begin{enumerate}
+        \item CPU 检测到异常，查找 IDT 中对应的处理程序
+        \item 如果处理程序设置了 \texttt{set\_stack\_index}，CPU 会切换到 IST 指定的栈
+        \item 如果 IST 栈空间不足，在压入寄存器状态或执行处理程序时会发生栈溢出
+        \item 栈溢出可能触发 Page Fault 或 General Protection Fault
+        \item 如果此时正在处理 Double Fault，新的异常会导致 Triple Fault，系统重置
+    \end{enumerate}
+
+    Triple Fault 通常发生在以下情况：
+    \begin{itemize}
+        \item Double Fault 处理程序本身发生异常
+        \item IDT 中 Double Fault 处理程序未正确设置
+        \item IST 栈溢出导致 Double Fault 处理程序无法正常执行
+    \end{itemize}
+
+    在实际调试中，如果发现系统频繁重启且没有任何错误输出，很可能是发生了 Triple Fault。此时可以通过 QEMU 的 \texttt{-d int,cpu\_reset} 选项查看中断和重置的详细信息。
+
+\end{enumerate}
+
+\section{注册中断处理程序}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=2]
+
+    \item \textbf{IDT 初始化}
+
+    IDT（Interrupt Descriptor Table）是 x86 架构中用于定义中断处理程序入口的数据结构。每个 IDT 条目包含处理程序的地址、段选择子和属性标志。
+
+    在 \texttt{src/interrupt/mod.rs} 中，使用 \texttt{lazy\_static} 定义全局静态的 IDT，并将注册工作委托给各个子模块：
+
+    \begin{minted}{rust}
+mod apic;
+mod consts;
+pub mod clock;
+mod serial;
+mod exceptions;
+
+use apic::*;
+use x86_64::structures::idt::InterruptDescriptorTable;
+
+use crate::{interrupt::consts::Irq, memory::physical_to_virtual};
+
+lazy_static! {
+    static ref IDT: InterruptDescriptorTable = {
+        let mut idt = InterruptDescriptorTable::new();
+        unsafe {
+            exceptions::register_idt(&mut idt);
+            clock::register_idt(&mut idt);
+            serial::register_idt(&mut idt);
+        }
+        idt
+    };
+}
+    \end{minted}
+
+    这种模块化设计使得代码结构清晰，每个模块只负责注册自己关心的中断类型。\texttt{exceptions} 模块处理 CPU 异常，\texttt{clock} 模块处理时钟中断，\texttt{serial} 模块处理串口中断。
+
+    \item \textbf{CPU 异常处理程序}
+
+    在 \texttt{src/interrupt/exceptions.rs} 中，为各种 CPU 异常注册处理程序。x86\_64 架构定义了多种异常类型，分为 Fault（错误）、Trap（陷阱）和 Abort（终止）三类。
+
+    \begin{minted}{rust}
+pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
+    // Faults
+    idt.divide_error.set_handler_fn(divide_error_handler);
+    idt.bound_range_exceeded.set_handler_fn(bound_range_exceeded_handler);
+    idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
+    idt.device_not_available.set_handler_fn(device_not_available_handler);
+    idt.invalid_tss.set_handler_fn(invalid_tss_handler);
+    idt.segment_not_present.set_handler_fn(segment_not_present_handler);
+    idt.stack_segment_fault.set_handler_fn(stack_segment_fault_handler);
+    idt.general_protection_fault.set_handler_fn(general_protection_fault_handler);
+    unsafe {
+        idt.page_fault
+        .set_handler_fn(page_fault_handler)
+        .set_stack_index(gdt::PAGE_FAULT_IST_INDEX);
+    }
+    idt.x87_floating_point.set_handler_fn(x87_floating_point_handler);
+    idt.alignment_check.set_handler_fn(alignment_check_handler);
+    idt.simd_floating_point.set_handler_fn(simd_floating_point_handler);
+
+    // Traps
+    idt.debug.set_handler_fn(debug_handler);
+    idt.breakpoint.set_handler_fn(breakpoint_handler);
+    idt.overflow.set_handler_fn(overflow_handler);
+
+    // Aborts
+    unsafe {
+        idt.double_fault
+        .set_handler_fn(double_fault_handler)
+        .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+    }
+    idt.machine_check.set_handler_fn(machine_check_handler);
+}
+    \end{minted}
+
+    这里需要注意，Page Fault 和 Double Fault 的处理程序通过 \texttt{set\_stack\_index} 指定了独立的 IST 栈。这是因为这两种异常可能在系统状态已经受损的情况下发生，使用独立栈可以确保处理程序有足够的栈空间执行。
+
+    中断处理函数使用 \texttt{extern "x86-interrupt"} 调用约定声明。这个调用约定是 Rust 专门为 x86 中断处理提供的，它会自动处理中断栈帧的保存和恢复，以及在中断返回时执行 \texttt{iretq} 指令。
+
+    \begin{minted}{rust}
+pub extern "x86-interrupt" fn divide_error_handler(stack_frame: InterruptStackFrame) {
+    panic!("EXCEPTION: DIVIDE ERROR\n\n{:#?}", stack_frame);
+}
+
+pub extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    err_code: PageFaultErrorCode,
+) {
+    panic!(
+        "EXCEPTION: PAGE FAULT, ERROR_CODE: {:?}\n\nTrying to access: {:#x}\n{:#?}",
+        err_code,
+        Cr2::read().unwrap_or(VirtAddr::new_truncate(0xdeadbeef)),
+        stack_frame
+    );
+}
+    \end{minted}
+
+    Page Fault 处理程序会读取 Cr2 寄存器，该寄存器保存了导致 Page Fault 的虚拟地址。这对于调试非常有用，可以快速定位问题所在。
+
+    \item \textbf{加分项：全部 CPU 异常处理程序}
+
+    \textbf{【加分项 1】} 为全部可能的 CPU 异常设置对应的处理程序：
+
+    如上述代码所示，已为以下异常注册了处理程序：
+    \begin{itemize}
+        \item \textbf{Faults}：Divide Error（除零错误）、Bound Range Exceeded（边界超限）、Invalid Opcode（无效操作码）、Device Not Available（设备不可用）、Invalid TSS（无效 TSS）、Segment Not Present（段不存在）、Stack Segment Fault（栈段错误）、General Protection Fault（一般保护错误）、Page Fault（页错误）、x87 Floating Point（x87 浮点异常）、Alignment Check（对齐检查）、SIMD Floating Point（SIMD 浮点异常）
+        \item \textbf{Traps}：Debug（调试）、Breakpoint（断点）、Overflow（溢出）
+        \item \textbf{Aborts}：Double Fault（双重错误）、Machine Check（机器检查）
+    \end{itemize}
+
+    每个处理程序都会输出异常类型和栈帧信息，方便调试。对于带有错误码的异常（如 General Protection Fault、Page Fault），处理程序还会输出错误码的具体值。
+
+    \item \textbf{思考题：未使用 set\_stack\_index 时的栈位置}
+
+    \textbf{【思考题 7】} 在未使用 \texttt{set\_stack\_index} 函数时，中断处理程序的栈可能在哪里？
+
+    当未使用 \texttt{set\_stack\_index} 时，中断处理程序会使用当前 CPU 的栈指针（RSP）。具体来说：
+    \begin{itemize}
+        \item 如果中断发生在内核态（Ring 0），则使用当前内核栈
+        \item 如果中断发生在用户态（Ring 3），CPU 会自动切换到 TSS 中的 RSP0（特权级栈）
+    \end{itemize}
+
+    在本实验中，由于所有代码都在内核态运行，未设置 \texttt{set\_stack\_index} 的中断处理程序会使用触发中断时正在使用的栈。这可能导致问题，因为如果中断发生在某个函数的深层调用中，栈空间可能不足。
+
+    通过 GDB 调试器可以验证这一点：在中断处理程序中设置断点，查看 RSP 的值，可以发现它与触发中断时的栈地址相同。
+
+    \item \textbf{思考题：Page Fault 属于可恢复异常的原因}
+
+    \textbf{【思考题 5 - Page Fault 部分】} Page Fault 属于可恢复的异常，因为：
+
+    Page Fault 的发生通常是因为访问的页面不在物理内存中（需要换入），而不是因为硬件错误或非法访问。Cr2 寄存器保存了导致 Page Fault 的虚拟地址，操作系统可以：
+    \begin{enumerate}
+        \item 检查该地址是否在进程的合法地址空间内
+        \item 如果是合法的按需分页访问，从磁盘加载页面到物理内存
+        \item 更新页表，重新执行导致 Page Fault 的指令
+    \end{enumerate}
+
+    从代码中可以看到，Page Fault 处理程序会读取 Cr2 寄存器：
+
+    \begin{minted}{rust}
+pub extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    err_code: PageFaultErrorCode,
+) {
+    panic!(
+        "EXCEPTION: PAGE FAULT, ERROR_CODE: {:?}\n\nTrying to access: {:#x}\n{:#?}",
+        err_code,
+        Cr2::read().unwrap_or(VirtAddr::new_truncate(0xdeadbeef)),
+        stack_frame
+    );
+}
+    \end{minted}
+
+    Cr2 寄存器的值指示了触发 Page Fault 的具体虚拟地址，这对于调试和实现虚拟内存管理非常重要。Page Fault 的错误码（\texttt{PageFaultErrorCode}）还包含了更多信息，如访问类型（读/写）、权限级别（用户/内核）等。
+
+\end{enumerate}
+
+\section{初始化 APIC}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=4]
+
+    \item \textbf{XAPIC 实现}
+
+    APIC（Advanced Programmable Interrupt Controller）是 x86 架构中的高级可编程中断控制器，负责管理和分发中断。XAPIC 是 APIC 的一种实现方式，通过 MMIO（Memory-Mapped I/O）进行访问。
+
+    在 \texttt{src/interrupt/apic/xapic.rs} 中，首先定义了 XAPIC 的结构体和基本的读写操作：
+
+    \begin{minted}{rust}
+pub struct XApic {
+    addr: u64,
+}
+
+impl XApic {
+    pub unsafe fn new(addr: u64) -> Self {
+        XApic { addr }
+    }
+
+    unsafe fn read(&self, reg: u32) -> u32 {
+        unsafe { read_volatile((self.addr + reg as u64) as *const u32) }
+    }
+
+    unsafe fn write(&mut self, reg: u32, value: u32) {
+        unsafe {
+            write_volatile((self.addr + reg as u64) as *mut u32, value);
+            self.read(0x20);
+        }
+    }
+}
+    \end{minted}
+
+    \texttt{read} 和 \texttt{write} 函数使用 \texttt{read\_volatile} 和 \texttt{write\_volatile} 进行 MMIO 操作。这些函数确保编译器不会优化掉对硬件寄存器的访问。
+
+    \texttt{write} 函数中的 \texttt{self.read(0x20)} 是一个重要的技巧：读取 APIC ID 寄存器（偏移量 0x20）用于确保写操作完成。这是因为 MMIO 写操作可能是异步的，CPU 可能在实际写入完成前继续执行后续指令。通过读取一个无关寄存器，可以强制 CPU 等待写操作完成，这称为“序列化”操作。
+
+    \item \textbf{APIC 初始化}
+
+    \texttt{LocalApic} trait 的 \texttt{cpu\_init} 方法实现了完整的 APIC 初始化流程：
+
+    \begin{minted}{rust}
+impl LocalApic for XApic {
+    fn support() -> bool {
+        CpuId::new().get_feature_info().map(
+            |f| f.has_apic()
+        ).unwrap_or(false)
+    }
+
+    fn cpu_init(&mut self) {
+        unsafe {
+            // Enable local APIC; set spurious interrupt vector.
+            let mut sivr = self.read(0xF0);
+            sivr |= LAPICFlags::ENAPIC.bits();
+            sivr &= !(0xFF);
+            sivr |= Interrupts::IrqBase as u32 + Irq::Spurious as u32;
+            self.write(0xF0, sivr);
+
+            // Set LVT timer register
+            let mut lvt_timer = self.read(0x320);
+            lvt_timer &= !(0xFF);
+            lvt_timer |= Interrupts::IrqBase as u32 + Irq::Timer as u32;
+            lvt_timer &= LVTTimerFlags::CLEAR_MASK.bits();
+            lvt_timer |= LVTTimerFlags::TIMER_PERIODIC_MODE.bits();
+            self.write(0x320, lvt_timer);
+
+            // Set TDCR and TICR
+            self.write(0x3E0, TDCRFlags::TIMEDIVIDEBY1.bits());
+            self.write(0x380, 0x20000);
+
+            // Disable LINT0, LINT1, PCINT
+            self.write(0x350, !LVTTimerFlags::CLEAR_MASK.bits());
+            self.write(0x360, !LVTTimerFlags::CLEAR_MASK.bits());
+            self.write(0x340, !LVTTimerFlags::CLEAR_MASK.bits());
+            
+            // Map error interrupt
+            let mut lvt_error = self.read(0x370);
+            lvt_error &= !(0xFF);
+            lvt_error |= Interrupts::IrqBase as u32 + Irq::Error as u32;
+            lvt_error &= LVTTimerFlags::CLEAR_MASK.bits();
+            self.write(0x370, lvt_error);
+
+            // Clear error status register
+            self.write(0x280, 0);
+            self.write(0x280, 0);
+
+            // Ack outstanding interrupts
+            self.write(0x0B, 0);
+
+            // Send Init Level De-Assert
+            self.write(0x310, 0);
+            const BCAST: u32 = 1 << 19;
+            const INIT: u32 = 5 << 8;
+            const TMLV: u32 = 1 << 15;
+            self.write(0x300, BCAST | INIT | TMLV);
+            const DS: u32 = 1 << 12;
+            while self.read(0x300) & DS != 0 {}
+
+            // Enable interrupts
+            self.write(0x08, 0);
+        }
+    }
+    // ...
+}
+    \end{minted}
+
+    APIC 初始化需要按照特定顺序执行多个步骤：
+
+    首先，通过 CPUID 指令检查系统是否支持 APIC。这是必要的，因为某些旧系统或虚拟机可能不支持 APIC。
+
+    然后，配置 SPIV（Spurious Interrupt Vector）寄存器（偏移量 0xF0）来启用 APIC。这个寄存器的第 8 位（EN 位）控制 APIC 的启用状态，低 8 位设置伪中断向量号。需要注意的是，SPIV 寄存器的低 4 位是只读的，始终为 1，因此在修改时需要保留这些位。
+
+    接下来，配置 LVT（Local Vector Table）Timer 寄存器（偏移量 0x320）来设置定时器中断。需要设置中断向量号、清除屏蔽位（Mask），并设置周期模式（Periodic Mode）。周期模式下，定时器会在每次计数到 0 时自动重新加载初始值并触发中断。
+
+    TDCR（Timer Divide Configuration Register，偏移量 0x3E0）设置分频系数，TICR（Timer Initial Count Register，偏移量 0x380）设置初始计数值。这两个寄存器共同决定了定时器中断的频率。
+
+    禁用 LINT0、LINT1 和 PCINT 是为了防止这些中断线产生意外的中断。这些中断线通常用于连接外部设备，但在本实验中不需要使用。
+
+    清除错误状态寄存器需要连续写入两次 0，这是 APIC 的硬件设计要求。
+
+    发送 INIT De-assert IPI（Inter-Processor Interrupt）是为了同步 APIC 的仲裁 ID。虽然本实验是单核系统，但这个步骤仍然是初始化流程的一部分。
+
+    \item \textbf{加分项：使用 bitflags 定义 APIC 寄存器}
+
+    \textbf{【加分项 3】} 使用 \texttt{bitflags} 宏定义 APIC 寄存器标志位，提高代码可读性：
+
+    \begin{minted}{rust}
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LAPICFlags: u32 {
+        const ENAPIC = 1 << 8;
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LVTTimerFlags: u32 {
+        const CLEAR_MASK = !(1 << 16);
+        const TIMER_PERIODIC_MODE = 1 << 17;
+    }
+
+    pub struct TDCRFlags: u32 {
+        const TIMEDIVIDEBY1 = 0b1011;
+        const TIMEDIVIDEBY2 = 0b0000;
+        const TIMEDIVIDEBY4 = 0b0001;
+        const TIMEDIVIDEBY8 = 0b0010;
+        const TIMEDIVIDEBY16 = 0b0011;
+        const TIMEDIVIDEBY32 = 0b1000;
+        const TIMEDIVIDEBY64 = 0b1001;
+        const TIMEDIVIDEBY128 = 0b1010;
+    }
+}
+    \end{minted}
+
+    使用 \texttt{bitflags} 宏可以清晰地定义寄存器中各个位的含义，避免直接使用魔法数字。例如，\texttt{LAPICFlags::ENAPIC} 明确表示这是启用 APIC 的标志位，而不是一个神秘的 \texttt{1 << 8}。
+
+    同时，使用 \texttt{bit\_field} crate 的 \texttt{get\_bit} 方法检查位状态：
+
+    \begin{minted}{rust}
+fn set_icr(&mut self, value: u64) {
+    unsafe {
+        while self.read(0x0300).get_bit(12) {}
+        self.write(0x0310, (value >> 32) as u32);
+        self.write(0x0300, value as u32);
+        while self.read(0x0300).get_bit(12) {}
+    }
+}
+    \end{minted}
+
+    ICR（Interrupt Command Register）由两个 32 位寄存器组成（0x300 和 0x310）。写入 ICR 时需要先写入高 32 位（0x310），再写入低 32 位（0x300）。第 12 位（DS，Delivery Status）表示中断是否正在发送，需要等待该位清零才能进行下一次写入。
+
+    \item \textbf{中断系统初始化}
+
+    在 \texttt{src/interrupt/mod.rs} 中，\texttt{init} 函数统一初始化中断系统：
+
+    \begin{minted}{rust}
+pub fn init() {
+    IDT.load();
+
+    if XApic::support() {
+        let mut lapic = unsafe {
+            XApic::new(physical_to_virtual(LAPIC_ADDR))
+        };
+        lapic.cpu_init();
+        info!("APIC Initialized.");
+
+        let mut ioapic = unsafe {
+            IoApic::new(physical_to_virtual(IOAPIC_ADDR))
+        };
+        ioapic.disable_all();
+        enable_irq(Irq::Serial0 as u8, 0);
+        info!("IOAPIC Enabled.");
+    } else {
+        info!("APIC is not supported.");
+    }
+    
+    info!("Interrupts Initialized.");
+}
+    \end{minted}
+
+    这里需要注意，APIC 的地址（\texttt{LAPIC\_ADDR = 0xFEE00000}）是物理地址，需要通过 \texttt{physical\_to\_virtual} 函数转换为虚拟地址才能访问。这是因为内核运行在高地址空间，直接访问物理地址会导致 Page Fault。
+
+    IOAPIC 的初始化包括禁用所有 IRQ，然后只启用需要的 IRQ（这里是串口 IRQ4）。这样可以避免收到不需要的中断。
+
+    \item \textbf{思考题：APIC 初始化顺序}
+
+    \textbf{【可选思考题 1】} APIC 初始化步骤必须严格按顺序执行：
+
+    \begin{enumerate}
+        \item \textbf{必须先启用 APIC（SPIV 寄存器）}，然后才能配置其他寄存器。如果先配置 LVT 或定时器寄存器，写入操作可能被忽略，因为 APIC 尚未启用。
+        \item \textbf{必须先清除错误状态寄存器}，然后才能启用中断。否则残留的错误状态可能导致意外中断或中断被屏蔽。
+        \item \textbf{必须先禁用 LINT0/LINT1}，然后才能发送 INIT IPI。否则可能收到意外的 NMI（Non-Maskable Interrupt）或 SMI（System Management Interrupt）。
+        \item \textbf{必须先发送 INIT De-assert IPI}，然后才能启用定时器中断。否则 APIC 可能处于不一致状态，导致定时器中断不触发。
+    \end{enumerate}
+
+    如果故意交换 SPIV 启用和 LVT 配置两步，最可能出现的首个可观测故障是：LVT 配置被忽略，定时器中断不会触发，系统不会输出 "Tick!" 日志。这是因为在 APIC 未启用时，对 LVT 寄存器的写入可能不会生效。
+
+\end{enumerate}
+
+\section{时钟中断}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=6]
+
+    \item \textbf{时钟中断处理程序}
+
+    在 \texttt{src/interrupt/clock.rs} 中，为 Timer IRQ 设置中断处理程序：
+
+    \begin{minted}{rust}
+use super::consts::*;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use core::sync::atomic::{AtomicU64, Ordering};
+
+pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
+    idt[Interrupts::IrqBase as u8 + Irq::Timer as u8]
+        .set_handler_fn(clock_handler);
+}
+
+pub extern "x86-interrupt" fn clock_handler(_sf: InterruptStackFrame) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        inc_counter();
+        super::ack();
+    });
+}
+
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+pub fn read_counter() -> u64 {
+    COUNTER.load(Ordering::Relaxed)
+}
+
+#[inline]
+pub fn inc_counter() -> u64 {
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+    \end{minted}
+
+    时钟中断处理程序的核心工作是增加计数器并发送 EOI（End Of Interrupt）信号。计数器使用 \texttt{AtomicU64} 类型，确保在并发访问时的原子性。
+
+    \texttt{without\_interrupts} 函数在执行闭包期间临时禁用 CPU 中断。这是必要的，因为：
+    \begin{itemize}
+        \item 防止时钟中断嵌套：如果在中断处理过程中又收到时钟中断，会导致递归调用
+        \item 确保 \texttt{ack()} 操作的完整性：EOI 信号需要在中断禁用状态下发送，以避免竞态条件
+    \end{itemize}
+
+    \item \textbf{思考题：without\_interrupts 的作用}
+
+    \textbf{【思考题 1】} 为什么需要在 \texttt{clock\_handler} 中使用 \texttt{without\_interrupts} 函数？
+
+    \texttt{without\_interrupts} 函数在执行闭包期间临时禁用 CPU 中断。如果不使用它，可能会发生以下情况：
+
+    \begin{enumerate}
+        \item 时钟中断处理程序执行过程中，另一个时钟中断可能嵌套触发
+        \item 嵌套中断可能导致 \texttt{COUNTER} 的读写操作被中断，虽然 \texttt{AtomicU64} 本身是原子的，但 \texttt{ack()} 操作可能被中断
+        \item 如果 \texttt{ack()} 被延迟，APIC 可能认为中断未被确认，导致中断丢失或重复
+        \item 在更复杂的场景中（如进程调度），嵌套中断可能导致栈溢出或状态不一致
+    \end{enumerate}
+
+    需要注意的是，\texttt{without\_interrupts} 只禁用当前 CPU 的中断，不会影响其他 CPU（在多核系统中）。在单核系统中，这足以保证临界区的互斥访问。
+
+    \item \textbf{思考题：时钟中断频率设置}
+
+    \textbf{【思考题 2】} 时钟中断的频率设置考虑：
+
+    \begin{itemize}
+        \item \textbf{频率太快}：中断开销增大，CPU 大量时间用于处理中断，降低系统吞吐量；但进程调度更及时，响应性更好
+        \item \textbf{频率太慢}：中断开销减小，但进程调度延迟增大，交互式应用响应变慢
+    \end{itemize}
+
+    在代码中，时钟频率由 TICR（初始计数值）和 TDCR（分频系数）决定：
+    \begin{minted}{rust}
+self.write(0x3E0, TDCRFlags::TIMEDIVIDEBY1.bits()); // 分频系数为 1
+self.write(0x380, 0x20000); // 初始计数值为 0x20000
+    \end{minted}
+
+    如果想要中断频率减半，可以将初始计数值加倍：
+    \begin{minted}{rust}
+self.write(0x380, 0x40000); // 初始计数值加倍，频率减半
+    \end{minted}
+
+    这是因为定时器每次计数到 0 时触发中断，然后重新加载初始值。初始值越大，计数到 0 所需的时间越长，中断频率越低。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{clock_interrupt.png}
+        \caption{时钟中断输出 - Tick! 日志}
+    \end{figure}
+
+    \item \textbf{加分项：线程安全的 COUNTER}
+
+    \textbf{【加分项 2】} COUNTER 使用 \texttt{AtomicU64} 定义，能够做到线程安全：
+
+    \begin{minted}{rust}
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+pub fn read_counter() -> u64 {
+    COUNTER.load(Ordering::Relaxed)
+}
+
+#[inline]
+pub fn inc_counter() -> u64 {
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+    \end{minted}
+
+    \texttt{AtomicU64} 提供了原子操作：
+    \begin{itemize}
+        \item \texttt{load(Ordering::Relaxed)}：原子读取
+        \item \texttt{fetch\_add(1, Ordering::Relaxed)}：原子增加并返回旧值
+    \end{itemize}
+
+    由于中断处理程序可能在任何时刻被触发，使用原子类型确保即使在多核环境下（虽然本实验是单核），计数器的读写也是线程安全的。\texttt{Ordering::Relaxed} 是最宽松的内存序，只保证原子性，不保证操作顺序。对于计数器这种不依赖其他内存操作的场景，\texttt{Relaxed} 序是足够的。
+
+\end{enumerate}
+
+\section{串口输入中断}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=8]
+
+    \item \textbf{串口驱动开启中断}
+
+    在 \texttt{src/drivers/uart16550.rs} 的 \texttt{init} 函数末尾为串口设备开启中断：
+
+    \begin{minted}{rust}
+// Enable Interrupts
+unsafe {
+    ier_port.write(IERFlags::RECEIVE_DATA.bits());
+}
+    \end{minted}
+
+    IER（Interrupt Enable Register，偏移量 1）用于启用或禁用串口的各种中断。\texttt{IERFlags::RECEIVE\_DATA} 对应第 0 位，启用接收数据中断。当串口收到数据时，会触发 IRQ4 中断。
+
+    需要注意的是，在初始化过程中，首先禁用了所有中断（写入 0x00），完成配置后才启用需要的中断。这是为了避免在配置过程中收到意外中断。
+
+    \item \textbf{串口中断处理程序}
+
+    在 \texttt{src/interrupt/serial.rs} 中，为 IRQ4 Serial0 设置中断处理程序：
+
+    \begin{minted}{rust}
+use crate::drivers;
+
+use super::consts::*;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+
+pub unsafe fn register_idt(idt: &mut InterruptDescriptorTable) {
+    idt[Interrupts::IrqBase as u8 + Irq::Serial0 as u8]
+        .set_handler_fn(serial_handler);
+}
+
+pub extern "x86-interrupt" fn serial_handler(_st: InterruptStackFrame) {
+    receive();
+    super::ack();
+}
+
+fn receive() {
+    if let Some(mut serial) = drivers::serial::get_serial() {
+        if let Some(ch) = serial.receive() {
+            drivers::input::push_key(ch);
+        }
+    }
+}
+    \end{minted}
+
+    串口中断处理程序遵循 Top half \& Bottom half 原则：在中断处理中只做最少的工作（读取字符并放入缓冲区），实际的数据处理在中断之外进行。这样可以减少中断处理的时间，提高系统响应性。
+
+    \texttt{receive} 函数通过 \texttt{get\_serial} 获取串口驱动的可变引用，然后调用 \texttt{receive} 方法读取字符。这里使用了 \texttt{Option} 类型来处理可能的空值，确保代码的健壮性。
+
+    \item \textbf{输入缓冲区驱动}
+
+    在 \texttt{src/drivers/input.rs} 中，使用 \texttt{crossbeam\_queue::ArrayQueue} 实现无锁输入缓冲区：
+
+    \begin{minted}{rust}
+use core::char;
+
+use alloc::string::String;
+use crossbeam_queue::ArrayQueue;
+type Key = u8;
+
+lazy_static! {
+    static ref INPUT_BUF: ArrayQueue<Key> = ArrayQueue::new(128);
+}
+
+#[inline]
+pub fn push_key(key: Key) {
+    if INPUT_BUF.push(key).is_err() {
+        warn!("Input buffer is full. Dropping key '{:?}'", key);
+    }
+}
+
+#[inline]
+pub fn try_pop_key() -> Option<Key> {
+    INPUT_BUF.pop()
+}
+
+pub fn pop_key() -> Key {
+    loop {
+        if let Some(key) = try_pop_key() {
+            return key;
+        }
+    }
+}
+    \end{minted}
+
+    \texttt{ArrayQueue} 是一个无锁的、固定大小的队列，适合在中断处理程序中使用。它的 \texttt{push} 和 \texttt{pop} 操作都是原子的，不需要额外的锁。
+
+    缓冲区大小设为 128，这是一个经验值：足够大以容纳用户快速输入的数据，又不会占用过多内存。如果缓冲区满了，\texttt{push} 会返回错误，此时输出警告日志并丢弃新数据。
+
+    \texttt{pop\_key} 函数是一个阻塞读取函数，循环等待直到缓冲区中有数据。这个函数在用户交互时使用，确保能够获取到用户输入。
+
+    \item \textbf{get\_line 函数实现}
+
+    \texttt{get\_line} 函数从缓冲区阻塞读取数据，支持退格和 UTF-8 编码：
+
+    \begin{minted}{rust}
+pub fn get_line() -> String {
+    let mut buf = String::with_capacity(128);
+    let mut utf8_buf = [0u8; 4];
+    let mut utf8_len = 0;
+
+    // State machine for ANSI escape sequences (0: Normal, 1: ESC, 2: ESC [)
+    let mut escape_state = 0;
+
+    loop {
+        let c = pop_key();
+        
+        // Handle ANSI escape sequences
+        if escape_state == 1 {
+            escape_state = if c == b'[' || c == b'O' { 2 } else { 0 };
+            continue;
+        } else if escape_state == 2 {
+            if c >= 0x40 && c <= 0x7E { escape_state = 0; }
+            continue;
+        } else if c == 0x1B {
+            escape_state = 1;
+            utf8_len = 0;
+            continue;
+        }
+
+        // Ignore unhandled control characters
+        if is_ignored_ctrl(c) {
+            utf8_len = 0;
+            continue;
+        }
+
+        if c == 0x08 || c == 0x7f {
+            if let Some(ch) = buf.pop() {
+                let width = if ch.is_ascii() { 1 } else { 2 };
+                for _ in 0..width {
+                    print!("\x08 \x08");
+                }
+            }
+            utf8_len = 0;
+        } else if c == 0x0A || c == 0x0D {
+            print!("\n");
+            return buf;
+        } else {
+            utf8_buf[utf8_len] = c;
+            utf8_len += 1;
+
+            // Attempt to parse UTF-8 sequence
+            match core::str::from_utf8(&utf8_buf[..utf8_len]) {
+                Ok(s) => {
+                    if let Some(ch) = s.chars().next() {
+                        buf.push(ch);
+                        print!("{}", ch);
+                    }
+                    utf8_len = 0;
+                }
+                Err(e) => {
+                    if e.error_len().is_some() || utf8_len >= 4 {
+                        utf8_len = 0;
+                    }
+                }
+            }
+        }
+    }
+}
+    \end{minted}
+
+    \texttt{get\_line} 函数的实现有几个关键点：
+
+    首先，使用 \texttt{String::with\_capacity(128)} 预先分配足够的内存，避免在读取过程中频繁重新分配。
+
+    其次，处理 ANSI 转义序列。终端发送的方向键等特殊键会产生 ANSI 转义序列（以 ESC [ 开头），这些序列需要被跳过，否则会显示为乱码。状态机用于跟踪当前的转义序列解析状态。
+
+    第三，处理退格键（0x08 和 0x7F）。退格时需要从缓冲区删除最后一个字符，并在屏幕上擦除对应的显示。对于非 ASCII 字符（如中文、emoji），需要估计显示宽度（ASCII 为 1，其他为 2），以确保正确擦除。
+
+    第四，UTF-8 解码。UTF-8 是一种变长编码，ASCII 字符占 1 字节，中文通常占 3 字节，emoji 可能占 4 字节。函数使用一个 4 字节的缓冲区累积 UTF-8 序列，然后尝试解析。如果解析成功，将字符添加到结果字符串；如果解析失败或超过最大长度，重置缓冲区。
+
+    \item \textbf{思考题：串口与互斥锁}
+
+    \textbf{【思考题 3】} 在进行 \texttt{receive} 操作的时候，为什么无法进行日志输出？
+
+    串口驱动使用互斥锁保护共享资源。当串口中断处理程序正在读取数据时，它持有了串口的锁。如果此时尝试输出日志（也使用串口），日志系统会尝试获取同一个锁，导致死锁。
+
+    与用户态多线程不同，中断导致的"并发访问"是强制性的：
+    \begin{enumerate}
+        \item 主程序持有串口锁进行日志输出
+        \item 中断触发，强制打断主程序
+        \item 中断处理程序尝试获取串口锁读取数据
+        \item 由于锁已被持有，中断处理程序等待
+        \item 但主程序被中断打断，无法释放锁
+        \item 形成死锁：中断等待锁，锁持有者被中断打断
+    \end{enumerate}
+
+    这就是为什么在中断处理程序中应该做尽量少的事，避免调用可能获取锁的函数。在本实验中，\texttt{receive} 函数通过 \texttt{get\_serial} 获取串口引用，如果串口驱动使用互斥锁保护，这里可能会死锁。实际实现中，\texttt{get\_serial} 返回的是 \texttt{Option}，如果无法获取锁则返回 \texttt{None}，避免了死锁。
+
+    \item \textbf{思考题：输入缓冲区满的情况}
+
+    \textbf{【思考题 4】} 输入缓冲区在以下情况下会满：
+    \begin{itemize}
+        \item 用户快速输入大量字符，超过缓冲区容量（128 字节）
+        \item 主程序长时间不读取缓冲区，中断持续接收字符
+    \end{itemize}
+
+    如果缓冲区满了，新输入的字符会被丢弃，并输出警告日志：
+    \begin{minted}{rust}
+if INPUT_BUF.push(key).is_err() {
+    warn!("Input buffer is full. Dropping key '{:?}'", key);
+}
+    \end{minted}
+
+    在实际使用中，128 字节的缓冲区通常足够大，因为用户输入速度有限。但如果主程序长时间阻塞，缓冲区可能会满。增加缓冲区大小可以缓解这个问题，但会占用更多内存。
+
+    \item \textbf{加分项：支持中文和 emoji 输入}
+
+    \textbf{【加分项 4】} 串口输入驱动通过 UTF-8 解码支持中文和 emoji 输入：
+
+    在 \texttt{get\_line} 函数中，使用 UTF-8 缓冲区累积多字节字符：
+    \begin{minted}{rust}
+let mut utf8_buf = [0u8; 4];
+let mut utf8_len = 0;
+
+// ... 在循环中累积 UTF-8 字节
+utf8_buf[utf8_len] = c;
+utf8_len += 1;
+
+// 尝试解析 UTF-8 序列
+match core::str::from_utf8(&utf8_buf[..utf8_len]) {
+    Ok(s) => {
+        if let Some(ch) = s.chars().next() {
+            buf.push(ch);
+            print!("{}", ch);
+        }
+        utf8_len = 0;
+    }
+    Err(e) => {
+        if e.error_len().is_some() || utf8_len >= 4 {
+            utf8_len = 0;
+        }
+    }
+}
+    \end{minted}
+
+    UTF-8 编码规则：
+    \begin{itemize}
+        \item 0xxxxxxx：单字节 ASCII
+        \item 110xxxxx 10xxxxxx：两字节字符
+        \item 1110xxxx 10xxxxxx 10xxxxxx：三字节字符（中文通常在此范围）
+        \item 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx：四字节字符（emoji 通常在此范围）
+    \end{itemize}
+
+    函数逐个接收字节，累积到 \texttt{utf8\_buf} 中，然后尝试解析为 UTF-8 字符串。如果解析成功，说明收到了完整的字符；如果解析失败，继续接收下一个字节。如果累积了 4 个字节仍然无法解析，说明收到了无效的 UTF-8 序列，重置缓冲区。
+
+    退格处理也考虑了字符显示宽度（ASCII 为 1，CJK/Emoji 为 2）：
+    \begin{minted}{rust}
+if let Some(ch) = buf.pop() {
+    let width = if ch.is_ascii() { 1 } else { 2 };
+    for _ in 0..width {
+        print!("\x08 \x08");
+    }
+}
+    \end{minted}
+
+    退格序列 \texttt{\textbackslash x08 \textbackslash x20 \textbackslash x08} 的含义是：光标左移、输出空格擦除字符、光标再左移。对于宽字符，需要重复两次这个序列。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{serial_echo_supporting_UTF-8.png}
+        \caption{串口输入支持 UTF-8（中文和 emoji）}
+    \end{figure}
+
+\end{enumerate}
+
+\section{用户交互}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=11]
+
+    \item \textbf{命令行交互}
+
+    在 \texttt{src/main.rs} 中，使用 \texttt{get\_line} 函数实现用户交互：
+
+    \begin{minted}{rust}
+#![no_std]
+#![no_main]
+
+use ysos_kernel::{self as ysos, input, interrupt, print, println};
+
+boot::entry_point!(kernel_main);
+
+pub fn kernel_main(boot_info: &'static boot::BootInfo) -> ! {
+    ysos::init(boot_info);
+
+    loop {
+        print!("> ");
+        let input = input::get_line();
+
+        match input.trim() {
+            "exit" => break,
+            _ => {
+                println!("You said {}", input);
+                println!("The counter value is {}", interrupt::clock::read_counter());
+            }
+        }
+    };
+    ysos::shutdown();
+}
+    \end{minted}
+
+    主循环首先输出提示符 \texttt{"> "}，然后调用 \texttt{get\_line} 阻塞等待用户输入。用户输入一行后，检查内容：如果是 "exit"，退出循环并关闭系统；否则，回显输入并显示当前时钟计数器值。
+
+    显示计数器值是为了验证时钟中断正常工作。如果时钟中断没有触发，计数器值将保持为 0。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{exit_command.png}
+        \caption{用户交互 - exit 命令}
+    \end{figure}
+
+    \item \textbf{思考题：Triple Fault 和 Double Fault 触发}
+
+    \textbf{【思考题 5 - Triple Fault 和 Double Fault 部分】}
+
+    \textbf{触发 Double Fault 的方式：} 在 IDT 中未注册的处理程序触发异常，或者在异常处理程序中再次触发异常。例如，在普通异常处理程序中访问非法地址。
+
+    \textbf{触发 Triple Fault 的方式：} Double Fault 处理程序中再次发生异常，或者 Double Fault 的 IST 栈溢出。
+
+    开启 \texttt{intdbg} 选项可以在 QEMU 中查看调试信息：
+    \begin{minted}[linenos=false]{bash}
+make intdbg
+    \end{minted}
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{debug_using_gdb_and_tmux.png}
+        \caption{使用 GDB 和 tmux 调试}
+    \end{figure}
+
+    在调试 Triple Fault 时，QEMU 会输出类似以下的信息：
+    \begin{minted}[linenos=false]{text}
+check_exception old: 0xffffffff new 0x8
+     0: v=08 e=0000 i=0 cpl=0 IP=0008:0000000000000000 pc=0000000000000000 SP=0010:0000000000000000 CR2=0000000000000000
+check_exception old: 0x8 new 0xd
+     1: v=0d e=0000 i=0 cpl=0 IP=0008:0000000000000000 pc=0000000000000000 SP=0010:0000000000000000 CR2=0000000000000000
+check_exception old: 0xd new 0x8
+     2: v=08 e=0000 i=0 cpl=0 IP=0008:0000000000000000 pc=0000000000000000 SP=0010:0000000000000000 CR2=0000000000000000
+Triple fault! Resetting...
+    \end{minted}
+
+    这里 \texttt{v=08} 表示 Double Fault（向量号 8），\texttt{v=0d} 表示 General Protection Fault（向量号 13）。可以看到异常链：Double Fault 触发 General Protection Fault，再触发 Double Fault，最终导致 Triple Fault。
+
+\end{enumerate}
+
+\section{实验总结}
+
+本次实验完成了以下内容：
+\begin{enumerate}
+    \item 实现了 GDT 和 TSS，为 Double Fault 和 Page Fault 准备了独立的 IST 栈。IST 栈使用静态缓冲区分配在 BSS 段，确保在内核启动早期可用。
+    \item 注册了全部 CPU 异常的中断处理程序（加分项 1），包括 Faults、Traps 和 Aborts 三类异常。Page Fault 和 Double Fault 使用独立的 IST 栈。
+    \item 实现了 APIC 初始化，使用 bitflags 和 bit\_field 定义寄存器（加分项 3）。APIC 初始化需要严格按照特定顺序执行，否则可能导致中断不触发或系统不稳定。
+    \item 实现了时钟中断，使用 AtomicU64 保证线程安全。时钟频率由 TDCR 和 TICR 寄存器共同决定。
+    \item 实现了串口输入中断和输入缓冲区驱动。使用无锁队列 \texttt{ArrayQueue} 实现输入缓冲区，支持中断处理程序和主程序并发访问。
+    \item 实现了支持 UTF-8 编码的用户交互（加分项 4），可以正确处理中文和 emoji 输入。
+    \item 完成了所有思考题的回答，深入理解了中断处理机制、栈切换、死锁等问题。
+\end{enumerate}
+
+通过本次实验，深入了解了中断处理机制、APIC 可编程中断控制器、IDT 中断描述符表、TSS 任务状态段以及 IST 中断栈表的工作原理。掌握了中断处理程序的编写方法，理解了 Top half \& Bottom half 原则在中断处理中的应用。为后续的进程调度和系统调用实现奠定了基础。
+
+\clearpage
+\end{document}
