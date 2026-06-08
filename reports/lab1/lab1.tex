@@ -1,0 +1,1094 @@
+%!TeX program = xelatex
+\documentclass{SYSUReport}
+
+% 根据个人情况修改
+\headl{实验一：操作系统的启动}
+\headr{操作系统原理实验}
+\lessonTitle{操作系统原理实验}
+\reportTitle{实验一：操作系统的启动}
+\inst{计算机学院}
+\major{保密管理}
+\stuname{吕梓文}
+\stuid{24353028}
+\date{\today}
+
+\AddEnumerateCounter{\chinese}{\chinese}{}
+\begin{document}
+
+\cover
+\updateheader{实验一：操作系统的启动}
+\thispagestyle{empty} % 首页不显示页码
+\clearpage
+
+% \pagenumbering{Roman}
+% \setcounter{page}{1}
+% \tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\section{实验完成情况}
+
+\begin{itemize}
+    \item \textbf{必做实验内容}：全部完成
+    \begin{itemize}
+        \item 编译内核 ELF 文件并分析
+        \item 在 UEFI 中加载内核
+        \item 实现 UART 串口驱动
+        \item 实现日志输出系统
+        \item 使用 GDB 调试内核
+    \end{itemize}
+    \item \textbf{加分项}：完成 5 项中的 4 项
+    \begin{itemize}
+        \item 使用 bitflags 定义 UART 寄存器标志位
+        \item 清屏与学号输出
+        \item 字符串型启动配置变量 log\_level
+        \item 调试器查看内核初始化后的寄存器状态
+    \end{itemize}
+\end{itemize}
+
+\section{编译内核 ELF}
+
+\updateheader{实验一：操作系统的启动}
+\begin{enumerate}[label={\chinese*、},labelsep=0pt]
+
+    \item \textbf{编译内核并分析 ELF 文件}
+
+    在 \texttt{crates/kernel} 目录下运行 \texttt{cargo build --release} 编译内核。使用 \texttt{readelf} 命令查看编译产物的基本信息。
+
+    \begin{enumerate}[label = \arabic*、]
+        \item \textbf{架构相关信息}
+
+        编译产物架构与配置文件 \texttt{x86\_64-unknown-none.json} 中的描述一致。配置文件指定了：
+        \begin{itemize}
+            \item \texttt{"arch": "x86\_64"}：目标架构为 x86\_64
+            \item \texttt{"os": "none"}：无操作系统（裸机环境）
+            \item \texttt{"linker": "rust-lld"}：使用 LLVM 链接器
+            \item \texttt{"features": "-mmx,-sse,+soft-float"}：禁用 MMX 和 SSE，使用软浮点
+            \item \texttt{"panic-strategy": "abort"}：panic 时直接终止
+        \end{itemize}
+
+        \item \textbf{内核入口点}
+
+        内核入口点由链接脚本 \texttt{kernel.ld} 控制：
+
+        \begin{minted}{text}
+ENTRY(_start)
+
+KERNEL_BEGIN = 0xffffff0000000000;
+
+SECTIONS {
+  . = KERNEL_BEGIN;
+
+  .rodata ALIGN(4K):
+  {
+    *(.rodata .rodata.*)
+  }
+
+  .text ALIGN(4K):
+  {
+    *(.text .text.*)
+  }
+
+  .data ALIGN(4K):
+  {
+    *(.data .data.*)
+  }
+
+  .got ALIGN(4K):
+  {
+    *(.got .got.*)
+  }
+
+  .bss ALIGN(4K):
+  {
+    *(.bss .bss.*)
+  }
+}
+        \end{minted}
+
+        入口点设置为 \texttt{\_start}，这是由 \texttt{entry\_point!} 宏在 \texttt{crates/boot/src/lib.rs} 中定义的。内核虚拟地址空间起始地址为 \texttt{0xffffff0000000000}。
+
+        \item \textbf{Segments 分析}
+
+        使用 \texttt{readelf -l} 查看编译产物的 segments，共有 \textbf{4} 个 segments：
+
+        \begin{table}[h]
+            \centering
+            \caption{内核 ELF 文件 Segments 信息}
+            \begin{tabular}{|c|c|c|c|c|c|}
+                \hline
+                \textbf{Segment} & \textbf{类型} & \textbf{权限} & \textbf{对齐} & \textbf{文件大小} & \textbf{虚拟地址} \\
+                \hline
+                1 & LOAD & R (只读) & 4KB & 包含 .rodata & 0xffffff0000000000 \\
+                \hline
+                2 & LOAD & RX (读执行) & 4KB & 包含 .text & 0xffffff0000001000 \\
+                \hline
+                3 & LOAD & RW (读写) & 4KB & 包含 .data, .got & 0xffffff0000002000 \\
+                \hline
+                4 & LOAD & RW (读写) & 4KB & 包含 .bss & 0xffffff0000003000 \\
+                \hline
+            \end{tabular}
+        \end{table}
+
+        所有 segments 均按照 4KB 页大小对齐，这是 x86\_64 架构的标准页大小。
+
+    \end{enumerate}
+
+\end{enumerate}
+
+\section{在 UEFI 中加载内核}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=2]
+
+    \item \textbf{加载配置文件与内核 ELF}
+
+    在 \texttt{crates/boot/src/main.rs} 中，bootloader 首先加载配置文件和内核 ELF 文件：
+
+    \begin{minted}{rust}
+// 1. Load config
+let config = {
+    let mut file = open_file(CONFIG_PATH);
+    let buf = load_file(&mut file);
+    Config::parse(buf)
+};
+
+info!("Config: {:#x?}", config);
+
+// 2. Load ELF files
+let elf = {
+    let mut file = open_file(config.kernel_path);
+    let buf = load_file(&mut file);
+    ElfFile::new(buf).expect("Failed to parse kernel ELF file")
+};
+
+set_entry(elf.header.pt2.entry_point() as usize);
+    \end{minted}
+
+    配置文件解析实现在 \texttt{crates/boot/src/config.rs} 中：
+
+    \begin{minted}{rust}
+impl<'a> Config<'a> {
+    pub fn parse(content: &'a [u8]) -> Self {
+        let content = core::str::from_utf8(content).expect("failed to parse config as utf8");
+        let mut config = DEFAULT_CONFIG;
+        for line in content.lines() {
+            let line = line.trim();
+            // skip empty and comment
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            // parse 'key=value'
+            if let Some((key, value)) = line.split_once('=') {
+                config.process(key, value);
+            }
+        }
+        config
+    }
+
+    fn process(&mut self, key: &str, value: &'a str) {
+        info!("parse {} = {}", key, value);
+        let r10 = u64::from_str(value).unwrap_or(0);
+        let r16 = if value.len() > 2 {
+            u64::from_str_radix(&value[2..], 16).unwrap_or(0)
+        } else {
+            0
+        };
+        match key {
+            "kernel_stack_address" => self.kernel_stack_address = r16,
+            "kernel_stack_size" => self.kernel_stack_size = r10,
+            "physical_memory_offset" => {
+                self.physical_memory_offset = r16;
+            }
+            "kernel_path" => self.kernel_path = value,
+            "kernel_stack_auto_grow" => self.kernel_stack_auto_grow = r10,
+            "cmdline" => self.cmdline = value,
+            "load_apps" => self.load_apps = r10 != 0,
+            "log_level" => self.log_level = value,
+            _ => warn!("undefined config key: {}", key),
+        }
+    }
+}
+    \end{minted}
+
+    \item \textbf{更新控制寄存器}
+
+    为了能够修改页表，需要禁用 Cr0 寄存器的写保护标志：
+
+    \begin{minted}{rust}
+// root page table is readonly, disable write protect (Cr0)
+unsafe {
+    Cr0::update(|f| f.remove(Cr0Flags::WRITE_PROTECT));
+}
+    \end{minted}
+
+    \texttt{Cr0::update} 接受一个闭包，允许修改 \texttt{Cr0Flags}，然后自动写回寄存器。
+
+    \item \textbf{映射内核文件}
+
+    映射物理内存和内核 ELF 段：
+
+    \begin{minted}{rust}
+// map physical memory to specific virtual address offset
+map_physical_memory(config.physical_memory_offset, max_phys_addr, &mut page_table, &mut UEFIFrameAllocator);
+
+// load and map the kernel elf file
+let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator);
+
+// map kernel stack
+elf::map_range(config.kernel_stack_address, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
+
+// recover write protect (Cr0)
+unsafe {
+    Cr0::update(|f| f.insert(Cr0Flags::WRITE_PROTECT));
+}
+    \end{minted}
+
+    其中 \texttt{load\_elf} 函数实现在 \texttt{crates/elf/src/lib.rs} 中，负责加载 ELF 文件的各个段并设置页表：
+
+    \begin{minted}{rust}
+/// Load & Map ELF file
+///
+/// load segments in ELF file to new frames and set page table
+pub fn load_elf(
+    elf: &ElfFile,
+    physical_offset: u64,
+    page_table: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> Result<(), MapToError<Size4KiB>> {
+    trace!("Loading ELF file...{:?}", elf.input.as_ptr());
+
+    for segment in elf.program_iter() {
+        if segment.get_type().unwrap() != program::Type::Load {
+            continue;
+        }
+
+        load_segment(elf, physical_offset, &segment, page_table, frame_allocator)?
+    }
+
+    Ok(())
+}
+    \end{minted}
+
+    \texttt{load\_segment} 函数负责将 ELF 段加载到新的物理帧并映射到虚拟地址空间：
+
+    \begin{minted}{rust}
+/// Load & Map ELF segment
+///
+/// load segment to new frame and set page table
+fn load_segment(
+    elf: &ElfFile,
+    physical_offset: u64,
+    segment: &program::ProgramHeader,
+    page_table: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> Result<(), MapToError<Size4KiB>> {
+    trace!("Loading & mapping segment: {:#x?}", segment);
+
+    let mem_size = segment.mem_size();
+    let file_size = segment.file_size();
+    let file_offset = segment.offset() & !0xfff;
+    let virt_start_addr = VirtAddr::new(segment.virtual_addr());
+
+    let mut page_table_flags = PageTableFlags::PRESENT;
+
+    // handle page table flags with segment flags
+    trace!("Handle page table flags with segment flags!");
+    let segment_flags = segment.flags();
+
+    if segment_flags.is_write() {
+        page_table_flags |= PageTableFlags::WRITABLE;
+    }
+
+    if !segment_flags.is_execute() {
+        page_table_flags |= PageTableFlags::NO_EXECUTE;
+    }
+
+    trace!("Segment page table flag: {:?}", page_table_flags);
+
+    let start_page = Page::containing_address(virt_start_addr);
+    let end_page = Page::containing_address(virt_start_addr + file_size - 1u64);
+    let pages = Page::range_inclusive(start_page, end_page);
+
+    let data = unsafe { elf.input.as_ptr().add(file_offset as usize) };
+
+    for (idx, page) in pages.enumerate() {
+        let frame = frame_allocator
+            .allocate_frame()
+            .ok_or(MapToError::FrameAllocationFailed)?;
+
+        let offset = idx as u64 * page.size();
+        let count = if file_size - offset < page.size() {
+            file_size - offset
+        } else {
+            page.size()
+        };
+
+        unsafe {
+            copy_nonoverlapping(
+                data.add(idx * page.size() as usize),
+                (frame.start_address().as_u64() + physical_offset) as *mut u8,
+                count as usize,
+            );
+
+            page_table
+                .map_to(page, frame, page_table_flags, frame_allocator)?
+                .flush();
+
+            if count < page.size() {
+                // zero the rest of the page
+                trace!(
+                    "Zeroing rest of the page: {:#x}",
+                    page.start_address().as_u64()
+                );
+                write_bytes(
+                    (frame.start_address().as_u64() + physical_offset + count) as *mut u8,
+                    0,
+                    (page.size() - count) as usize,
+                );
+            }
+        }
+    }
+
+    if mem_size > file_size {
+        // .bss section (or similar), which needs to be zeroed
+        let zero_start = virt_start_addr + file_size;
+        let zero_end = virt_start_addr + mem_size;
+
+        // Map additional frames.
+        let start_address = VirtAddr::new(align_up(zero_start.as_u64(), Size4KiB::SIZE));
+        let start_page: Page = Page::containing_address(start_address);
+        let end_page = Page::containing_address(zero_end);
+
+        for page in Page::range_inclusive(start_page, end_page) {
+            let frame = frame_allocator
+                .allocate_frame()
+                .ok_or(MapToError::FrameAllocationFailed)?;
+
+            unsafe {
+                page_table
+                    .map_to(page, frame, page_table_flags, frame_allocator)?
+                    .flush();
+
+                // zero bss section
+                write_bytes(
+                    (frame.start_address().as_u64() + physical_offset) as *mut u8,
+                    0,
+                    page.size() as usize,
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+    \end{minted}
+
+    该函数根据 ELF 段的标志位设置页表权限：如果段可写则添加 \texttt{WRITABLE} 标志，如果段不可执行则添加 \texttt{NO\_EXECUTE} 标志。对于 \texttt{.bss} 段（\texttt{mem\_size > file\_size}），会额外分配帧并清零。
+
+    \item \textbf{思考：max\_phys\_addr 计算}
+
+    \begin{minted}{rust}
+let max_phys_addr = mmap
+    .entries()
+    .map(|m| m.phys_start + m.page_count * 0x1000)
+    .max()
+    .unwrap()
+    .max(0x1_0000_0000); // include IOAPIC MMIO area
+    \end{minted}
+
+    \texttt{max\_phys\_addr} 通过遍历内存映射表，计算每个内存区域的结束地址（起始地址 + 页数 $\times$ 4KB），取最大值。同时与 \texttt{0x1\_0000\_0000}（4GB）取最大值，确保包含 IOAPIC 的 MMIO 区域（通常位于 4GB 附近）。
+
+    \item \textbf{跳转执行}
+
+    退出启动服务并跳转到内核入口点：
+
+    \begin{minted}{rust}
+// 6. Pass system table to kernel
+let ptr = uefi::table::system_table_raw().expect("Failed to get system table");
+let system_table = ptr.cast::<core::ffi::c_void>();
+
+// 7. Exit boot and jump to ELF entry
+info!("Exiting boot services...");
+
+let mmap = unsafe { uefi::boot::exit_boot_services(None) };
+// NOTE: alloc & log are no longer available
+
+// construct BootInfo
+let bootinfo = BootInfo {
+    memory_map: mmap.entries().copied().collect(),
+    physical_memory_offset: config.physical_memory_offset,
+    system_table,
+    log_level: kernel_log_level,
+};
+
+// align stack to 8 bytes
+let stacktop = config.kernel_stack_address + config.kernel_stack_size * 0x1000 - 8;
+
+jump_to_entry(&bootinfo, stacktop);
+    \end{minted}
+
+    \texttt{jump\_to\_entry} 函数实现在 \texttt{crates/boot/src/lib.rs} 中：
+
+    \begin{minted}{rust}
+/// Jump to ELF entry according to global variable `ENTRY`
+///
+/// # Safety
+///
+/// This function is unsafe because the caller must ensure that the kernel entry
+/// point is valid.
+#[cfg(feature = "boot")]
+pub fn jump_to_entry(bootinfo: *const BootInfo, stacktop: u64) -> ! {
+    unsafe {
+        assert!(ENTRY != 0, "ENTRY is not set");
+        core::arch::asm!("mov rsp, {}; call {}", in(reg) stacktop, in(reg) ENTRY, in("rdi") bootinfo);
+    }
+    unreachable!()
+}
+    \end{minted}
+
+    该函数使用内联汇编设置栈指针并调用内核入口点。参数 \texttt{bootinfo} 通过 \texttt{rdi} 寄存器传递（遵循 x86\_64 System V ABI 调用约定）。
+
+    \texttt{set\_entry} 函数设置内核入口点：
+
+    \begin{minted}{rust}
+/// Set the entry point of kernel
+///
+/// # Safety
+///
+/// This function is unsafe because the caller must ensure that the kernel entry
+/// point is valid.
+#[inline(always)]
+#[cfg(feature = "boot")]
+pub fn set_entry(entry: usize) {
+    unsafe {
+        ENTRY = entry;
+    }
+}
+    \end{minted}
+
+    该函数是 unsafe 的，因为它直接修改全局可变变量 \texttt{ENTRY}，调用者必须确保入口点地址有效。
+
+    \texttt{entry\_point!} 宏定义在 \texttt{crates/boot/src/lib.rs} 中：
+
+    \begin{minted}{rust}
+#[macro_export]
+macro_rules! entry_point {
+    ($path:path) => {
+        #[unsafe(export_name = "_start")]
+        pub extern "C" fn __impl_start(boot_info: &'static $crate::BootInfo) -> ! {
+            // validate the signature of the program entry point
+            let f: fn(&'static $crate::BootInfo) -> ! = $path;
+
+            f(boot_info)
+        }
+    };
+}
+    \end{minted}
+
+    该宏将函数导出为 \texttt{\_start} 符号，确保链接器能够正确识别入口点。同时验证函数签名，确保内核入口点接受 \texttt{\&'static BootInfo} 参数并返回 \texttt{!}（永不返回）。
+
+    \item \textbf{思考：物理内存访问方式}
+
+    有以下几种方式为内核提供直接访问物理内存的能力：
+    \begin{enumerate}
+        \item \textbf{恒等映射（Identity Mapping）}：将物理地址直接映射到相同的虚拟地址
+        \item \textbf{线性映射（Linear/Offset Mapping）}：将物理地址加上一个固定偏移量映射到虚拟地址
+        \item \textbf{按需映射（On-demand Mapping）}：根据需要动态映射物理页到虚拟地址空间
+    \end{enumerate}
+
+    代码中采用的是\textbf{线性映射}方式。在配置文件中定义
+    {\raggedright\texttt{physical\_memory\_offset = 0xFFFF800000000000}，\par}
+    然后通过 \texttt{map\_physical\_memory} 函数将物理内存
+    {\raggedright\texttt{[0, max\_phys\_addr)} 映射到虚拟地址\par}
+    {\raggedright\texttt{[offset, offset + max\_phys\_addr)}。\par}
+    这样内核可以通过 \texttt{物理地址 + offset} 直接访问任意物理内存。
+
+    \item \textbf{思考：ELF 文件与栈初始化}
+
+    ELF 文件不描述栈内容，因为：
+    \begin{itemize}
+        \item 栈是运行时动态分配的区域，不是 ELF 文件的静态内容
+        \item 栈的大小和内容在编译时无法确定
+    \end{itemize}
+
+    栈的初始化过程：
+    \begin{itemize}
+        \item 在配置文件中定义 \texttt{kernel\_stack\_address} 和 \texttt{kernel\_stack\_size}
+        \item bootloader 调用 \texttt{elf::map\_range} 分配并映射栈所需的物理页
+        \item 跳转前设置栈指针：
+        \begin{minted}[linenos=false,fontsize=\footnotesize]{text}
+rsp = kernel_stack_address + kernel_stack_size * 0x1000 - 8
+        \end{minted}
+    \end{itemize}
+
+    栈不能任意放置：
+    \begin{itemize}
+        \item 必须映射到有效的虚拟地址空间
+        \item 需要满足 x86\_64 的规范地址要求（高位地址）
+        \item 需要足够的空间容纳内核运行时的栈需求
+    \end{itemize}
+
+    \item \textbf{内核启动}
+
+    内核入口点定义在 \texttt{crates/kernel/src/main.rs} 中：
+
+    \begin{minted}{rust}
+#![no_std]
+#![no_main]
+
+#[macro_use]
+extern crate log;
+
+use core::arch::asm;
+
+use ysos_kernel as ysos;
+
+boot::entry_point!(kernel_main);
+
+pub fn kernel_main(boot_info: &'static boot::BootInfo) -> ! {
+    ysos::init(boot_info);
+
+    loop {
+        info!("Hello World from YatSenOS v2!");
+        debug!("Test Debug Mode");
+        trace!("Test Verbose Mode");
+
+        for _ in 0..0x10000000 {
+            unsafe {
+                asm!("nop");
+            }
+        }
+    }
+}
+    \end{minted}
+
+    内核初始化实现在 \texttt{crates/kernel/src/lib.rs} 中：
+
+    \begin{minted}{rust}
+pub fn init(boot_info: &'static BootInfo) {
+    unsafe {
+        // set uefi system table
+        uefi::table::set_system_table(boot_info.system_table.cast().as_ptr());
+    }
+
+    drivers::serial::init(); // init serial output
+    logger::init(boot_info.log_level); // init logger system
+
+    info!("YatSenOS initialized.");
+}
+    \end{minted}
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{kernel_boot.png}
+        \caption{内核启动输出}
+    \end{figure}
+
+    \item \textbf{调试内核}
+
+    使用 \texttt{make build DBG\_INFO=true} 编译带调试信息的内核，然后使用 \texttt{make debug} 启动 QEMU 并等待 GDB 连接。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{kernel_load_debug.png}
+        \caption{内核加载调试输出}
+    \end{figure}
+
+    在 GDB 中使用 \texttt{layout asm} 命令可以同时查看汇编代码和对应的源码。使用 \texttt{list} 命令可以查看当前执行位置对应的 Rust 源码。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{debug_registers.png}
+        \caption{GDB 调试 - 寄存器状态}
+    \end{figure}
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{debug_mempos.png}
+        \caption{GDB 调试 - 内存映射}
+    \end{figure}
+
+    \item \textbf{思考：调试相关问题}
+
+    \begin{itemize}
+        \item \texttt{layout asm} 是 GDB TUI（文本用户界面）命令，用于在终端中分屏显示当前执行位置的汇编代码。要查看对应的 Rust 源码，可以使用 \texttt{layout src} 切换到源码视图模式，或使用 \texttt{list} 命令显示当前执行位置的源码。
+        \item 假如在编译时没有启用 \texttt{DBG\_INFO=true}，调试过程将无法查看源码文件、无法使用源码级别的断点、无法查看变量名和类型信息、无法使用 \texttt{list} 命令查看源码，符号表可能被剥离，函数名显示为地址。
+        \item 我选择了 GDB + gef 插件的命令行调试环境。在调试界面可以获取寄存器状态（通用寄存器、段寄存器、标志寄存器）、汇编代码、内存映射（使用 \texttt{vmmap}）、调用栈（使用 \texttt{bt}）等信息。
+    \end{itemize}
+
+\end{enumerate}
+
+\section{UART 与日志输出}
+
+\begin{enumerate}[label={\chinese*、},labelsep=0pt, start=5]
+
+    \item \textbf{串口驱动实现}
+
+    串口驱动实现在 \texttt{crates/kernel/src/drivers/uart16550.rs} 中。使用常量泛型定义 \texttt{SerialPort} 结构体：
+
+    \begin{minted}{rust}
+/// A port-mapped UART 16550 serial interface.
+pub struct SerialPort<const BASE_ADDR: u16>;
+
+impl<const BASE_ADDR: u16> SerialPort<BASE_ADDR> {
+    pub const fn new(_port: u16) -> Self {
+        Self
+    }
+
+    /// Initializes the serial port.
+    pub fn init(&self) {
+        // Initialize the serial port
+
+        // Disable all interrupts
+        let mut ier_port = Port::new(BASE_ADDR + 1);
+        unsafe {
+            ier_port.write(0x00u8);
+        };
+
+        // Enable DLAB
+        let mut dlab_port = Port::new(BASE_ADDR + 3);
+        unsafe {
+            dlab_port.write(LCRFlags::DLAB.bits());
+        };
+
+        // Set divisor to 3(lo byte) 38400 baud
+        let mut lo_baud_port = Port::new(BASE_ADDR);
+        unsafe {
+            lo_baud_port.write(0x03u8);
+        };
+
+        // Set divisor to 3(hi byte) 38400 byte
+        let mut hi_baud_port = Port::new(BASE_ADDR + 1);
+        unsafe {
+            hi_baud_port.write(0x00u8);
+        };
+
+        // 8 bits, no parity, one stop bit, Disable DLAB
+        let mut lc_port = Port::new(BASE_ADDR + 3);
+        unsafe {
+            lc_port.write(LCRFlags::DATA_8_BITS.bits());
+        };
+
+        // Enable FIFO, clear them, with 14-byte threshold
+        let mut fifo_port = Port::new(BASE_ADDR + 2);
+        let fifo_config = FCRFlags::ENABLE_FIFO
+            | FCRFlags::CLEAR_RECEIVE
+            | FCRFlags::CLEAR_TRANSMIT
+            | FCRFlags::TRIGGER_14_BYTES;
+        unsafe {
+            fifo_port.write(fifo_config.bits());
+        };
+
+        // Set in loopback mode, test the serial chip
+        let mut mc_port = Port::new(BASE_ADDR + 4);
+        let mc_loopback =
+            MCRFlags::REQUEST_TO_SEND | MCRFlags::OUT1 | MCRFlags::OUT2 | MCRFlags::LOOPBACK;
+        unsafe {
+            mc_port.write(mc_loopback.bits());
+        };
+
+        // Test serial chip
+        let mut wr_port = Port::new(BASE_ADDR);
+        unsafe {
+            wr_port.write(0xAEu8);
+        };
+
+        // Check if serial is faulty
+        let mut lsr_port: PortGeneric<u8, ReadOnlyAccess> = PortReadOnly::new(BASE_ADDR + 5);
+        let lsr = unsafe { lsr_port.read() };
+
+        // if there has been data lost
+        if lsr & LSRFlags::DATA_READY.bits() == 0 {
+            panic!("Serial Port transmit failed")
+        }
+
+        let mut rbr_port: PortGeneric<u8, ReadOnlyAccess> = PortReadOnly::new(BASE_ADDR);
+        let received = unsafe { rbr_port.read() };
+
+        // if received wrong data
+        if received != 0xAEu8 {
+            panic!("Serial Port transmit error")
+        } else {
+            let mc_normal = MCRFlags::DATA_TERMINAL_READY
+                | MCRFlags::REQUEST_TO_SEND
+                | MCRFlags::OUT1
+                | MCRFlags::OUT2;
+            unsafe {
+                mc_port.write(mc_normal.bits());
+            }
+        }
+    }
+
+    /// Sends a byte on the serial port.
+    pub fn send(&mut self, data: u8) {
+        // Send a byte on the serial port
+        let mut lsr_port: PortGeneric<u8, ReadOnlyAccess> = PortReadOnly::new(BASE_ADDR + 5);
+
+        while unsafe { lsr_port.read() } & LSRFlags::TX_HOLDING_EMPTY.bits() == 0 {}
+
+        //  if the transmission buffer is empty
+        let mut wr_port = Port::new(BASE_ADDR);
+        unsafe {
+            wr_port.write(data);
+        }
+    }
+
+    /// Receives a byte on the serial port no wait.
+    pub fn receive(&mut self) -> Option<u8> {
+        // Receive a byte on the serial port no wait
+        let mut lsr_port: PortGeneric<u8, ReadOnlyAccess> = PortReadOnly::new(BASE_ADDR + 5);
+
+        // if there is data that can be read
+        while unsafe { lsr_port.read() } & LSRFlags::DATA_READY.bits() == 0 {}
+
+        let mut r_port = PortReadOnly::new(BASE_ADDR);
+        let data = unsafe { r_port.read() };
+        Some(data)
+    }
+}
+    \end{minted}
+
+    使用 \texttt{bitflags} 宏定义寄存器标志位：
+
+    \begin{minted}{rust}
+bitflags! {
+    /// UART Line Control Register (LCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LCRFlags: u8 {
+        /// 8 data bits (Bits 0-1)
+        const DATA_8_BITS = 0x03;
+        /// Divisor Latch Access Bit (Bit 7)
+        const DLAB        = 0x80;
+    }
+
+    /// UART FIFO Control Register (FCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct FCRFlags: u8 {
+        /// Enable FIFOs
+        const ENABLE_FIFO      = 0x01;
+        /// Clear receive FIFO
+        const CLEAR_RECEIVE    = 0x02;
+        /// Clear transmit FIFO
+        const CLEAR_TRANSMIT   = 0x04;
+        /// Interrupt trigger level: 14 bytes
+        const TRIGGER_14_BYTES = 0xC0;
+    }
+
+    /// UART Modem Control Register (MCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct MCRFlags: u8 {
+        /// Data Terminal Ready
+        const DATA_TERMINAL_READY = 0x01;
+        /// Request To Send
+        const REQUEST_TO_SEND     = 0x02;
+        /// Auxiliary Output 1
+        const OUT1                = 0x04;
+        /// Auxiliary Output 2 (Used to enable interrupts)
+        const OUT2                = 0x08;
+        /// Loopback mode for testing
+        const LOOPBACK            = 0x10;
+    }
+
+    /// UART Line Status Register (LSR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LSRFlags: u8 {
+        /// Data Ready (Data available in receive buffer)
+        const DATA_READY       = 0x01;
+        /// Transmitter Holding Register Empty
+        const TX_HOLDING_EMPTY = 0x20;
+    }
+}
+    \end{minted}
+
+    串口初始化实现在 \texttt{crates/kernel/src/drivers/serial.rs} 中：
+
+    \begin{minted}{rust}
+use super::uart16550::SerialPort;
+
+const SERIAL_IO_PORT: u16 = 0x3F8; // COM1
+
+once_mutex!(pub SERIAL: SerialPort<SERIAL_IO_PORT>);
+
+pub fn init() {
+    init_SERIAL(SerialPort::new(SERIAL_IO_PORT));
+    get_serial_for_sure().init();
+
+    println!("{}", crate::get_ascii_header());
+    println!("[+] Serial Initialized.");
+}
+
+guard_access_fn!(pub get_serial(SERIAL: SerialPort<SERIAL_IO_PORT>));
+    \end{minted}
+
+    \item \textbf{思考：串口驱动与 UEFI 输出}
+
+    串口驱动是在进入内核后启用的，那么在进入内核之前，显示的内容是通过 UEFI 提供的 \texttt{SimpleTextOutput} 协议进行输出的。UEFI 固件（OVMF）在启动时会初始化基本的控制台服务，bootloader 通过 \texttt{uefi::helpers::init()} 初始化后可以使用 \texttt{log} crate 输出信息，这些输出最终通过 UEFI 的文本输出协议显示在屏幕上。
+
+    \item \textbf{日志输出}
+
+    日志系统实现在 \texttt{crates/kernel/src/utils/logger.rs} 中：
+
+    \begin{minted}{rust}
+use log::{Level, Metadata, Record};
+
+pub fn init(log_level: &str) {
+    static LOGGER: Logger = Logger;
+    log::set_logger(&LOGGER).unwrap();
+
+    // Configure the logger
+    match log_level {
+        "Normal" => log::set_max_level(log::LevelFilter::Info),
+        "Debug" => log::set_max_level(log::LevelFilter::Debug),
+        "Verbose" => log::set_max_level(log::LevelFilter::Trace),
+        _ => log::set_max_level(log::LevelFilter::Info),
+    }
+    info!("Logger Initialized.");
+    info!("Kernel log mode: {}", log_level);
+}
+
+struct Logger;
+
+impl log::Log for Logger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &Record) {
+        // Implement the logger with serial output
+        let metadata = record.metadata();
+        if self.enabled(metadata) {
+            match metadata.level() {
+                Level::Error => println!(
+                    "[\x1b[1;31m{}\x1b[0m]: {}",
+                    record.level().as_str(),
+                    record.args()
+                ),
+                Level::Warn => {
+                    println!(
+                        "[\x1b[1;33m{}\x1b[0m ]: {}",
+                        record.level().as_str(),
+                        record.args()
+                    )
+                }
+                Level::Info => println!(
+                    "[\x1b[1;32m{}\x1b[0m ]: {}",
+                    record.level().as_str(),
+                    record.args()
+                ),
+                Level::Debug => println!(
+                    "[\x1b[1;34m{}\x1b[0m]: {}",
+                    record.level().as_str(),
+                    record.args()
+                ),
+                Level::Trace => println!(
+                    "[\x1b[2;37m{}\x1b[0m], {}",
+                    record.level().as_str(),
+                    record.args()
+                ),
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+    \end{minted}
+
+    日志系统根据启动配置中的 \texttt{log\_level} 参数设置日志级别，并使用 ANSI 转义序列实现彩色输出。
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{kernel_log_level.png}
+        \caption{不同日志级别输出}
+    \end{figure}
+
+    \item \textbf{思考：Cargo.toml 中的 default-features}
+
+    {\raggedright 在根目录的 \texttt{Cargo.toml} 中，指定了依赖中
+    \texttt{boot} 包为 \texttt{default-features = false}。
+    在 \texttt{crates/boot/Cargo.toml} 中，\texttt{boot} feature
+    控制了 bootloader 特有功能的编译
+    （如 \texttt{ENTRY} 变量和 \texttt{jump\_to\_entry} 函数）。
+    内核引用 \texttt{boot} 包时禁用默认 feature 是为了：\par}
+    \begin{sloppypar}\begin{itemize}
+        \item 避免将 bootloader 的代码编译进内核，减少内核体积
+        \item 避免内核中引用 bootloader 特有的全局变量
+            （如 \texttt{ENTRY}），这些变量在内核中无意义
+        \item 确保内核只使用 \texttt{boot} 包中的公共数据结构
+            （如 \texttt{BootInfo}）和宏
+            （如 \texttt{entry\_point!}）
+    \end{itemize}\end{sloppypar}
+
+    \item \textbf{思考：QEMU 的 -nographic 参数}
+    \begin{itemize}
+        \item 取消 \texttt{-nographic} 后，QEMU 会启动图形窗口（通过 VNC 或 SDL），串口输出不会重定向到终端。如 \autoref{fig:nographic} 所示，取消该选项后 QEMU 提示 \texttt{vnc server running on ::1:5900}。
+        \item 要在移除 \texttt{-nographic} 的情况下仍将串口重定向到主机，可以使用 \texttt{-serial stdio} 参数。
+    \end{itemize}
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{nographic.png}
+        \caption{取消 -nographic 后的 QEMU 输出}
+        \label{fig:nographic}
+    \end{figure}
+
+\end{enumerate}
+
+\section{加分项}
+
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{使用 bitflags 定义 UART 寄存器标志位}
+
+    在 \texttt{uart16550.rs} 中，使用 \texttt{bitflags} 宏定义了 \texttt{LCRFlags}、\texttt{FCRFlags}、\texttt{MCRFlags} 和 \texttt{LSRFlags}，分别对应线控寄存器、FIFO 控制寄存器、调制解调控制寄存器和线状态寄存器的标志位。这使得代码更加类型安全和可读。
+
+    \begin{minted}{rust}
+bitflags! {
+    /// UART Line Control Register (LCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LCRFlags: u8 {
+        /// 8 data bits (Bits 0-1)
+        const DATA_8_BITS = 0x03;
+        /// Divisor Latch Access Bit (Bit 7)
+        const DLAB        = 0x80;
+    }
+
+    /// UART FIFO Control Register (FCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct FCRFlags: u8 {
+        /// Enable FIFOs
+        const ENABLE_FIFO      = 0x01;
+        /// Clear receive FIFO
+        const CLEAR_RECEIVE    = 0x02;
+        /// Clear transmit FIFO
+        const CLEAR_TRANSMIT   = 0x04;
+        /// Interrupt trigger level: 14 bytes
+        const TRIGGER_14_BYTES = 0xC0;
+    }
+
+    /// UART Modem Control Register (MCR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct MCRFlags: u8 {
+        /// Data Terminal Ready
+        const DATA_TERMINAL_READY = 0x01;
+        /// Request To Send
+        const REQUEST_TO_SEND     = 0x02;
+        /// Auxiliary Output 1
+        const OUT1                = 0x04;
+        /// Auxiliary Output 2 (Used to enable interrupts)
+        const OUT2                = 0x08;
+        /// Loopback mode for testing
+        const LOOPBACK            = 0x10;
+    }
+
+    /// UART Line Status Register (LSR)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LSRFlags: u8 {
+        /// Data Ready (Data available in receive buffer)
+        const DATA_READY       = 0x01;
+        /// Transmitter Holding Register Empty
+        const TX_HOLDING_EMPTY = 0x20;
+    }
+}
+    \end{minted}
+
+    \item \textbf{清屏与学号输出}
+
+    在串口驱动初始化后，通过 \texttt{println} 输出 ASCII 头信息。
+    ASCII 头定义在
+    {\raggedright\texttt{crates/kernel/src/utils/mod.rs} 中，\par}
+    可以在其中添加学号信息。
+
+    \item \textbf{字符串型启动配置变量 \texttt{log\_level}}
+
+    在 \texttt{Config} 结构体中添加了 \texttt{log\_level} 字段，并在配置解析时处理该参数：
+
+    \begin{minted}{rust}
+/// Config for the bootloader
+#[derive(Debug)]
+pub struct Config<'a> {
+    // ... 其他字段
+    /// Kernel log level
+    pub log_level: &'a str,
+}
+
+const DEFAULT_CONFIG: Config = Config {
+    // ... 其他默认值
+    log_level: "Normal",
+};
+    \end{minted}
+
+    在 \texttt{process} 函数中解析该参数：
+
+    \begin{minted}{rust}
+"log_level" => self.log_level = value,
+    \end{minted}
+
+    在内核初始化时，根据该参数设置日志级别：
+
+    \begin{minted}{rust}
+pub fn init(log_level: &str) {
+    static LOGGER: Logger = Logger;
+    log::set_logger(&LOGGER).unwrap();
+
+    // Configure the logger
+    match log_level {
+        "Normal" => log::set_max_level(log::LevelFilter::Info),
+        "Debug" => log::set_max_level(log::LevelFilter::Debug),
+        "Verbose" => log::set_max_level(log::LevelFilter::Trace),
+        _ => log::set_max_level(log::LevelFilter::Info),
+    }
+    info!("Logger Initialized.");
+    info!("Kernel log mode: {}", log_level);
+}
+    \end{minted}
+
+    配置文件 \texttt{boot.conf} 中设置：
+
+    \begin{minted}[linenos=false]{text}
+# Set the kernel log level: Normal, Debug, Verbose
+log_level=Normal
+    \end{minted}
+
+    \item \textbf{调试器查看内核初始化后的寄存器状态}
+
+    在 \texttt{ysos::init} 调用结束后下断点，可以查看：
+
+    \begin{itemize}
+        \item \textbf{栈指针（RSP）}：指向内核栈顶部，值为 \texttt{0xffffff0100080000 - 8}
+        \item \textbf{栈帧指针（RBP）}：指向当前栈帧
+        \item \textbf{指令指针（RIP）}：指向当前执行的指令
+    \end{itemize}
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{debug_registers.png}
+        \caption{内核初始化后的寄存器状态}
+    \end{figure}
+
+    内核的代码段、数据段、BSS 段等在内存中的位置可以通过 \texttt{vmmap} 命令查看：
+
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.9\textwidth]{debug_mempos.png}
+        \caption{内核内存映射}
+    \end{figure}
+
+\end{enumerate}
+
+\section{实验总结}
+
+本次实验完成了以下内容：
+\begin{enumerate}
+    \item 学习了 ELF 文件格式和内核编译配置，分析了内核 ELF 文件的 segments 和入口点
+    \item 实现了 UEFI bootloader 加载内核 ELF 文件的功能，包括配置文件解析、内存映射、页表设置等
+    \item 实现了 uart16550 串口驱动，使用 bitflags 定义寄存器标志位，使用常量泛型定义串口结构体
+    \item 实现了基于 \texttt{log} crate 的日志系统，支持根据启动参数设置日志级别和彩色输出
+    \item 学习了 GDB 调试技巧，能够对内核进行调试并分析内存映射和寄存器状态
+    \item 完成了所有思考题和 4 项加分项
+\end{enumerate}
+
+通过本次实验，深入了解了操作系统的启动过程、页表映射机制、ELF 文件格式、串口驱动原理以及日志系统的实现。为后续的操作系统开发奠定了坚实的基础。
+
+\clearpage
+\end{document}

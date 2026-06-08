@@ -6,11 +6,11 @@
 extern crate log;
 extern crate alloc;
 
-use alloc::{boxed::Box, vec};
-
-use uefi::{Status, entry};
+use elf::{load_elf, map_physical_memory};
+use uefi::{Status, entry, mem::memory_map::MemoryMap};
 use x86_64::registers::control::*;
-use ysos_boot::*;
+use xmas_elf::ElfFile;
+use ysos_boot::{config::Config, *};
 
 mod config;
 
@@ -24,12 +24,20 @@ fn efi_main() -> Status {
     info!("Running UEFI bootloader...");
 
     // 1. Load config
-    let config = { /* FIXME: Load config file as Config */ };
+    let config = {
+        let mut file = open_file(CONFIG_PATH);
+        let buf = load_file(&mut file);
+        Config::parse(buf)
+    };
 
     info!("Config: {:#x?}", config);
 
     // 2. Load ELF files
-    let elf = { /* FIXME: Load kernel elf file */ };
+    let elf = {
+        let mut file = open_file(config.kernel_path);
+        let buf = load_file(&mut file);
+        ElfFile::new(buf).expect("Failed to parse kernel ELF file")
+    };
 
     set_entry(elf.header.pt2.entry_point() as usize);
 
@@ -46,23 +54,34 @@ fn efi_main() -> Status {
     // 4. Map ELF segments, kernel stack and physical memory to virtual memory
     let mut page_table = current_page_table();
 
-    // FIXME: root page table is readonly, disable write protect (Cr0)
+    //5. Set Kernel log level
+    let kernel_log_level = config.log_level;
 
-    // FIXME: map physical memory to specific virtual address offset
+    // root page table is readonly, disable write protect (Cr0)
+    unsafe {
+        Cr0::update(|f| f.remove(Cr0Flags::WRITE_PROTECT));
+    }
 
-    // FIXME: load and map the kernel elf file
+    // map physical memory to specific virtual address offset
+    map_physical_memory(config.physical_memory_offset, max_phys_addr, &mut page_table, &mut UEFIFrameAllocator);
 
-    // FIXME: map kernel stack
+    // load and map the kernel elf file
+    let _ =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator);
 
-    // FIXME: recover write protect (Cr0)
+    // map kernel stack
+    elf::map_range(config.kernel_stack_address, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator).expect("Failed to map kernel stack");
 
+    // recover write protect (Cr0)
+    unsafe {
+        Cr0::update(|f| f.insert(Cr0Flags::WRITE_PROTECT));
+    }
     free_elf(elf);
 
-    // 5. Pass system table to kernel
+    // 6. Pass system table to kernel
     let ptr = uefi::table::system_table_raw().expect("Failed to get system table");
     let system_table = ptr.cast::<core::ffi::c_void>();
 
-    // 6. Exit boot and jump to ELF entry
+    // 7. Exit boot and jump to ELF entry
     info!("Exiting boot services...");
 
     let mmap = unsafe { uefi::boot::exit_boot_services(None) };
@@ -73,6 +92,7 @@ fn efi_main() -> Status {
         memory_map: mmap.entries().copied().collect(),
         physical_memory_offset: config.physical_memory_offset,
         system_table,
+        log_level: kernel_log_level,
     };
 
     // align stack to 8 bytes

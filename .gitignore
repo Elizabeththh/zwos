@@ -16,6 +16,9 @@
 **/Cargo.lock
 
 ### Latex ###
-*.synctex.gz
-*.pdf
-**/_minted-*/
+reports/**/*.synctex.gz
+reports/**/*.pdf
+**/_minted*/
+reports/**/*.log
+reports/**/*.aux
+reports/**/*.out
