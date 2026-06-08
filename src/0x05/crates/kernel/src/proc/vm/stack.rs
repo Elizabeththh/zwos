@@ -6,7 +6,7 @@ use x86_64::{
     structures::paging::{Mapper, Page, mapper::MapToError, page::*},
 };
 
-use crate::memory::PAGE_SIZE;
+use crate::memory::{PAGE_SIZE, physical_to_virtual};
 use super::{FrameAllocatorRef, MapperRef};
 
 
@@ -221,9 +221,10 @@ impl Stack {
 
         // FIXED: alloc & map new stack for child (see instructions)
         let child_range = elf::map_range(child_stack_bot, self.usage, mapper, alloc, true).expect("Failed to map child stack");
-
+        
         // FIXED: copy the *entire stack* from parent to child
-        self.clone_range(self.range.start.start_address().as_u64(), child_stack_bot, self.usage);
+        // self.clone_range(self.range.start.start_address().as_u64(), child_stack_bot, self.usage);            using parent's page table to clone, will cause error when child's new P4 entry is be created
+        self.clone_range_to_child(self.range.start.start_address().as_u64(), child_range.start, mapper, self.usage);
 
         // FIXED: return the new stack
         Self {
@@ -237,16 +238,38 @@ impl Stack {
     /// - `src_addr`: the address of the source memory
     /// - `dest_addr`: the address of the target memory
     /// - `size`: the count of pages to be cloned
-    fn clone_range(&self, cur_addr: u64, dest_addr: u64, size: u64) {
-        trace!("Clone range: {:#x} -> {:#x}", cur_addr, dest_addr);
-        unsafe {
-            copy_nonoverlapping::<u64>(
-                cur_addr as *mut u64,
-                dest_addr as *mut u64,
-                (size * Size4KiB::SIZE / 8) as usize,
-            );
+    // fn clone_range(&self, cur_addr: u64, dest_addr: u64, size: u64) {
+    //     trace!("Clone range: {:#x} -> {:#x}", cur_addr, dest_addr);
+    //     unsafe {
+    //         copy_nonoverlapping::<u64>(
+    //             cur_addr as *mut u64,
+    //             dest_addr as *mut u64,
+    //             (size * Size4KiB::SIZE / 8) as usize,
+    //         );
+    //     }
+    // }
+
+    fn clone_range_to_child(
+        &self,
+        src_addr: u64,
+        dst_start_page: Page<Size4KiB>,
+        child_mapper: MapperRef,
+        size: u64,
+    ) {
+        for i in 0..size {
+            let src = (src_addr + i * PAGE_SIZE) as *const u8;
+            let dst_page = dst_start_page + i;
+
+            let dst_frame = child_mapper
+                .translate_page(dst_page)
+                .expect("child stack page should be mapped");
+            let dst = physical_to_virtual(dst_frame.start_address().as_u64()) as *mut u8;
+
+            unsafe {
+                copy_nonoverlapping(src, dst, PAGE_SIZE as usize);
+            }
         }
-}
+    }
 }
 
 impl core::fmt::Debug for Stack {
