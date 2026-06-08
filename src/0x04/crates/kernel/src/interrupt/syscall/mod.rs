@@ -82,6 +82,10 @@ pub fn dispatcher(context: &mut ProcessContext) {
         Syscall::WaitPid => { /* FIXED: check if the process is running or get retcode */
             proc::wait_pid(ProcessId(args.arg0 as u16), context);
         }
+        
+        
+        // op: u8, key: u32, val: usize -> ret: any
+        Syscall::Sem => sys_sem(&args, context),
 
         Syscall::Time => {
             context.set_rax(sys_get_time());

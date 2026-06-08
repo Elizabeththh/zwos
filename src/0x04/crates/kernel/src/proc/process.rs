@@ -4,7 +4,7 @@ use spin::*;
 use x86_64::structures::paging::mapper::UnmapError;
 
 use super::*;
-use crate::proc::{self, ProgramStatus::Ready, vm::stack::STACK_CONSTS};
+use crate::proc::{self, ProgramStatus::Ready, sync::SemaphoreResult, vm::stack::STACK_CONSTS};
 use crate::humanized_size;
 
 pub struct Process {
@@ -252,6 +252,30 @@ impl ProcessInner {
         }
 
         // NOTE: return inner because there's no pid record in inner
+    }
+
+    pub fn sem_wait(&mut self, key: u32, pid: ProcessId) -> SemaphoreResult {
+        self.semaphores.write().wait(key, pid)
+    }
+
+    pub fn new_sem(&mut self, key: u32, value: usize) -> usize {
+        let ret = self.semaphores.write().insert(key, value);
+        match ret {
+            true => 0,
+            false => 1,
+        }
+    }
+
+    pub fn remove_sem(&mut self, key: u32) -> usize {
+        let ret = self.semaphores.write().remove(key);
+        match ret {
+            true => 0,
+            false => 1,
+        }
+    }
+
+    pub fn sem_signal(&mut self, key: u32) -> SemaphoreResult {
+        self.semaphores.write().signal(key)
     }
 }
 

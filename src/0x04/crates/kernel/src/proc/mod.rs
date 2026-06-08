@@ -20,7 +20,7 @@ use process::*;
 use x86_64::{VirtAddr, structures::idt::PageFaultErrorCode};
 use vm::ProcessVm;
 
-use crate::proc::vm::stack::KERNEL_STACK_CONSTS;
+use crate::proc::{sync::SemaphoreResult, vm::stack::KERNEL_STACK_CONSTS};
 
 pub const KERNEL_PID: ProcessId = ProcessId(1);
 
@@ -65,16 +65,11 @@ pub fn switch(context: &mut ProcessContext) {
 
         let process_manager = get_process_manager();
         let old_pid = processor::get_pid();
-        let old_proc = process_manager.get_proc(&old_pid).expect("No Process Found Based On Provided PID");
-    
         // save current process's context
         process_manager.save_current(context);
 
-        if old_proc.read().status() == ProgramStatus::Running {
-            old_proc.write().pause();
-            // handle ready queue update
-            process_manager.push_ready(processor::get_pid());
-        }
+        process_manager.push_ready(old_pid);
+        
         // restore next process's context
         process_manager.switch_next(context);
     });
@@ -220,7 +215,6 @@ pub fn fork(context: &mut ProcessContext) {
         let child_pid = manager.fork();
         // FIXED: push child & parent to ready queue
         manager.push_ready(child_pid);
-        parent.write().pause();
         manager.push_ready(parent.pid());
         // FIXED: switch to next process
         manager.switch_next(context);
@@ -237,6 +231,62 @@ pub fn wait_pid(pid: ProcessId, context: &mut ProcessContext) {
             manager.save_current(context);
             manager.current().write().block();
             manager.switch_next(context);
+        }
+    })
+}
+
+pub fn sem_wait(key: u32, context: &mut ProcessContext) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        let pid = processor::get_pid();
+        let ret = manager.current().write().sem_wait(key, pid);
+        match ret {
+            SemaphoreResult::Ok => context.set_rax(0),
+            SemaphoreResult::NotExist => context.set_rax(1),
+            SemaphoreResult::Block(pid) => {
+                // FIXED: save, block it, then switch to next
+                //        use `save_current` and `switch_next`
+                context.set_rax(0);
+                manager.save_current(context);
+                manager.get_proc(&pid).expect("Could not get process").write().block();
+                manager.switch_next(context);
+            }
+            _ => unreachable!(),
+        }
+    })
+}
+
+pub fn new_sem(key: u32, value: usize) -> usize {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        let ret = manager.current().write().new_sem(key, value);
+        ret
+    })
+}
+
+pub fn remove_sem(key: u32) -> usize {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        let ret = manager.current().write().remove_sem(key);
+        ret
+    })
+}
+
+pub fn sem_signal(key: u32, context: &mut ProcessContext) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let manager = get_process_manager();
+        let ret = manager.current().write().sem_signal(key);
+        match ret {
+            SemaphoreResult::NotExist => {
+                context.set_rax(1);
+            },
+            SemaphoreResult::WakeUp(pid) => {
+                // set before `save_current`
+                manager.get_proc(&pid).expect("Could not get process").write().pause();
+                manager.push_ready(pid);
+                context.set_rax(0);
+            },
+            _ => context.set_rax(0),
         }
     })
 }

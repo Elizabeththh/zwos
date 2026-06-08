@@ -1,5 +1,7 @@
 use syscall_def::Syscall;
 
+use crate::syscall;
+
 #[inline(always)]
 pub fn sys_write(fd: u8, buf: &[u8]) -> Option<usize> {
     let ret = syscall!(
@@ -86,4 +88,24 @@ pub fn sys_get_pid() -> u16 {
 pub fn sys_exit(code: isize) -> ! {
     syscall!(Syscall::Exit, code as u64);
     unreachable!("This process should be terminated by now.")
+}
+
+#[inline(always)]
+pub fn sys_new_sem(key: u32, value: usize) -> bool {
+    syscall!(Syscall::Sem, 0, key as usize, value) == 0
+}
+
+#[inline(always)]
+pub fn sys_remove_sem(key: u32) -> bool {
+    syscall!(Syscall::Sem, 1, key as usize) == 0
+}
+
+#[inline(always)]
+pub fn sys_sem_signal(key: u32) -> bool {
+    syscall!(Syscall::Sem, 2, key as usize) == 0
+}
+
+#[inline(always)]
+pub fn sys_sem_wait(key: u32) -> bool {
+    syscall!(Syscall::Sem, 3, key as usize) == 0
 }

@@ -106,11 +106,15 @@ impl ProcessManager {
 
     pub fn switch_next(&self, context: &mut ProcessContext) -> ProcessId {
 
-        let process_manager = get_process_manager();
+        let old_proc = self.current();
+        if old_proc.read().status() == ProgramStatus::Running {
+            old_proc.write().pause();
+            // handle ready queue update
+        }
 
         // FIXED: fetch the next process from ready queue
-        let pid = process_manager.ready_queue.lock().pop_front().expect("No Process Found In Ready Queue");
-        let proc = process_manager.get_proc(&pid).expect("No Process Found Based on the Provided PID");
+        let pid = self.ready_queue.lock().pop_front().expect("No Process Found In Ready Queue");
+        let proc = self.get_proc(&pid).expect("No Process Found Based on the Provided PID");
 
         // FIXED: restore next process's context
         proc.write().restore(context);
@@ -220,7 +224,7 @@ impl ProcessManager {
         if let Some(proc) = self.get_proc(&pid) {
             let mut inner = proc.write();
             if let Some(ret) = ret {
-                // FIXME: set the return value of the process
+                // FIXED: set the return value of the process
                 //        like `context.set_rax(ret as usize)`
                 inner.set_return_code(ret as usize);
             }
