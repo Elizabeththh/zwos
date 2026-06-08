@@ -8,7 +8,7 @@ macro_rules! entry {
         pub extern "C" fn __impl_start() {
             let ret = $fn();
             // FIXED: after syscall, add lib::sys_exit(ret);
-            sys_exit(ret);
+            $crate::sys_exit(ret);
         }
     };
 }

@@ -22,6 +22,7 @@ pub use alloc::*;
 use core::fmt::*;
 
 pub use io::*;
+pub use sync::*;
 pub use syscall::*;
 
 #[macro_export]

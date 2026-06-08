@@ -66,6 +66,7 @@ fn main() -> isize {
     0
 }
 
+#[inline(always)]
 fn produce(id: usize) {
     for msg in 0..MSG_COUNT {
         SEM_EMPTY.wait();
@@ -87,6 +88,7 @@ fn produce(id: usize) {
     }
 }
 
+#[inline(always)]
 fn consume(id: usize) {
     for _ in 0..MSG_COUNT {
         SEM_FULL.wait();

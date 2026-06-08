@@ -2,7 +2,7 @@
 #![no_main]
 
 use lib::*;
-use core::str::{FromStr, SplitWhitespace};
+use core::str::FromStr;
 
 extern crate lib;
 
