@@ -16,6 +16,7 @@ enum Command {
     Exit,
     Time,
     Counter,
+    Mq,
     Shell,
 }
 
@@ -33,6 +34,7 @@ impl FromStr for Command {
             "help" => Ok(Command::Help),
             "time" => Ok(Command::Time),
             "counter" => Ok(Command::Counter),
+            "mq" => Ok(Command::Mq),
             "sh" => Ok(Command::Shell),
             _ => Err(()),
         }        
@@ -73,6 +75,10 @@ fn main() -> isize {
             }
             Ok(Command::Counter) => {
                 let pid = sys_spawn("counter");
+                sys_wait_pid(pid);
+            }
+            Ok(Command::Mq) => {
+                let pid = sys_spawn("mq");
                 sys_wait_pid(pid);
             }
             Ok(Command::Shell) => {
