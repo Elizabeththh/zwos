@@ -37,6 +37,21 @@ pub struct BootInfo {
     /// mapped.
     pub physical_memory_offset: u64,
 
+    /// The max address for kernel stack
+    pub kernel_stack_max_addr: u64,
+
+    ///The default number of pages that a initial kernel stack contain
+    pub kernel_default_page: u64,
+
+    /// The max address for stack
+    pub stack_max_addr: u64,
+
+    /// The max number of pages that stack can contain
+    pub stack_max_pages: u64,
+
+    /// The default number of pages that a initial stack contain
+    pub stack_default_page: u64,
+
     /// The system table virtual address
     pub system_table: NonNull<core::ffi::c_void>,
 

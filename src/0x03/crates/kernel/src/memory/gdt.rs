@@ -12,6 +12,7 @@ use x86_64::{
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 pub const PAGE_FAULT_IST_INDEX: u16 = 1;
+pub const CLOCK_INTERRUPT_IST_INDEX: u16 = 2;
 
 pub const IST_SIZES: [usize; 3] = [0x1000, 0x1000, 0x1000];
 
@@ -71,6 +72,23 @@ lazy_static! {
             stack_end
         };
 
+<<<<<<< HEAD:src/0x02/crates/kernel/src/memory/gdt.rs
+=======
+        // Allocate IST stack for Clock Interrupt
+        tss.interrupt_stack_table[CLOCK_INTERRUPT_IST_INDEX as usize] = {
+            const STACK_SIZE: usize = IST_SIZES[2];
+            static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(addr_of_mut!(STACK));
+            let stack_end = stack_start + STACK_SIZE as u64;
+            info!(
+                "CLOCK INTERRUPT IST  : 0x{:016x}-0x{:016x}",
+                stack_start.as_u64(),
+                stack_end.as_u64()
+            );
+            stack_end
+        };
+
+>>>>>>> dev/lab3:src/0x03/crates/kernel/src/memory/gdt.rs
         tss
     };
 }

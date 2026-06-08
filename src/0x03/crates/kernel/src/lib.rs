@@ -26,6 +26,7 @@ pub use drivers::*;
 
 pub mod memory;
 pub mod interrupt;
+pub mod proc;
 
 pub use alloc::format;
 
@@ -43,6 +44,8 @@ pub fn init(boot_info: &'static BootInfo) {
     memory::address::init(boot_info);
     memory::gdt::init(); // init gdt
     memory::allocator::init(); // init kernel heap allocator
+    proc::vm::stack::consts_init(boot_info); // init stack constances
+    proc::init();
     interrupt::init(); // init interrupts
     memory::init(boot_info); // init memory manager
 

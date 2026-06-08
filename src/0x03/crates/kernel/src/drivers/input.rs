@@ -1,5 +1,8 @@
+<<<<<<< HEAD:src/0x02/crates/kernel/src/drivers/input.rs
 use core::char;
 
+=======
+>>>>>>> dev/lab3:src/0x03/crates/kernel/src/drivers/input.rs
 use alloc::string::String;
 use crossbeam_queue::ArrayQueue;
 type Key = u8;
