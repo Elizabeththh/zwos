@@ -228,7 +228,14 @@ impl ProcessInner {
         
         // FIXED: update `rsp` in interrupt stack frame
         child_ctx_value.stack_frame.stack_pointer = VirtAddr::new(child_ctx_value.stack_frame.stack_pointer.as_u64() - stack_offset_bytes);
-
+        let parent_stack = self.vm().stack.range;
+        let parent_stack_start = parent_stack.start.start_address().as_u64();
+        let parent_stack_end = parent_stack.end.start_address().as_u64();
+        
+        let parent_rbp = self.context.regs.rbp as u64;
+        if parent_stack_start <= parent_rbp && parent_rbp < parent_stack_end {
+            child_ctx_value.regs.rbp = (parent_rbp - stack_offset_bytes) as usize;
+        }
         // FIXED: set the return value 0 for child with `context.set_rax`
         child_ctx_value.regs.rax = 0;
 
