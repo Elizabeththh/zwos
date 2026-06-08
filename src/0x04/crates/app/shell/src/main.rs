@@ -2,7 +2,7 @@
 #![no_main]
 
 use lib::*;
-use core::str::FromStr;
+use core::str::{FromStr, SplitWhitespace};
 
 extern crate lib;
 
@@ -17,6 +17,7 @@ enum Command {
     Time,
     Counter,
     Mq,
+    Dinner,
     Shell,
 }
 
@@ -35,6 +36,7 @@ impl FromStr for Command {
             "time" => Ok(Command::Time),
             "counter" => Ok(Command::Counter),
             "mq" => Ok(Command::Mq),
+            "dinner" => Ok(Command::Dinner),
             "sh" => Ok(Command::Shell),
             _ => Err(()),
         }        
@@ -49,42 +51,19 @@ fn main() -> isize {
         match command.parse::<Command>() {
             Ok(Command::Ps) => sys_stat(),
             Ok(Command::ListApp) => sys_list_app(),
-            Ok(Command::Hello) => {
-                let pid = sys_spawn("hello");
-                sys_wait_pid(pid);
-            }
-            Ok(Command::Test) => {
-                // let pid = sys_spawn("test_app");
-                // sys_wait_pid(pid);
-                let pid = sys_spawn("test_fork");
-                sys_wait_pid(pid);
-            }
-            Ok(Command::Help) => {
-                help()
-            }
+            Ok(Command::Hello) => spawn_and_wait("hello"),
+            Ok(Command::Test) => spawn_and_wait("test"),
+            Ok(Command::Help) => help(),
             Ok(Command::Exit) => {
                 println!("Exit Shell...");
                 break;
             }
-            Ok(Command::Clear) => {
-                print!("\x1b[2J\x1b[H");
-            }
-            Ok(Command::Time) => {
-                let pid = sys_spawn("time");
-                sys_wait_pid(pid);
-            }
-            Ok(Command::Counter) => {
-                let pid = sys_spawn("counter");
-                sys_wait_pid(pid);
-            }
-            Ok(Command::Mq) => {
-                let pid = sys_spawn("mq");
-                sys_wait_pid(pid);
-            }
-            Ok(Command::Shell) => {
-                let pid = sys_spawn("shell");
-                sys_wait_pid(pid);
-            }
+            Ok(Command::Clear) => print!("\x1b[2J\x1b[H"),
+            Ok(Command::Time) => spawn_and_wait("time"),
+            Ok(Command::Counter) => spawn_and_wait("counter"),
+            Ok(Command::Mq) => spawn_and_wait("mq"),
+            Ok(Command::Dinner) => spawn_and_wait("dinner"),
+            Ok(Command::Shell) => spawn_and_wait("sh"),
             Err(_) => println!("Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit")
         }
         
@@ -92,9 +71,16 @@ fn main() -> isize {
     0
 }
 
+#[inline(always)]
 fn help() {
     println!("Developed by lvzw, whose student ID is 24353028");
     println!("Available Command: ps, ls, hello, test, clear, sh, time, exit");
+}
+
+#[inline(always)]
+fn spawn_and_wait(path: &str) {
+    let pid = sys_spawn(path);
+    sys_wait_pid(pid);
 }
 
 entry!(main);
