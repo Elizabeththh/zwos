@@ -24,3 +24,4 @@ x86                   = { workspace = true }
 x86_64                = { workspace = true }
 xmas-elf              = { workspace = true }
 syscall_def           = { workspace = true }
+storage               = { package = "ysos_storage", path = "../storage" }

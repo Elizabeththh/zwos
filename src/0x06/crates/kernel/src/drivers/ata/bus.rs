@@ -6,6 +6,7 @@
 
 use alloc::boxed::Box;
 
+use storage::{DeviceError, FsError};
 use x86_64::instructions::port::*;
 
 use super::consts::*;
@@ -140,10 +141,19 @@ impl AtaBus {
             // just 1 sector for current implementation
             self.sector_count.write(1);
 
-            // FIXME: store the LBA28 address into four 8-bit registers
+            // FIXED: store the LBA28 address into four 8-bit registers
             //      - read the documentation for more information
             //      - enable LBA28 mode by setting the drive register
-            // FIXME: write the command register (cmd as u8)
+            // FIXED: write the command register (cmd as u8)
+            self.lba_low.write(bytes[0]);
+            self.lba_mid.write(bytes[1]);
+            self.lba_high.write(bytes[2]);
+
+            let lba_last_four_bits = bytes[3] & 0x0F;
+            let drive = lba_last_four_bits | 0xE0 | (drive << 4);
+            self.drive.write(drive);
+
+            self.command.write(cmd as u8);
         }
 
         if self.status().is_empty() {
@@ -151,7 +161,8 @@ impl AtaBus {
             return Err(storage::DeviceError::UnknownDevice.into());
         }
 
-        // FIXME: poll for the status to be not BUSY
+        // FIXED: poll for the status to be not BUSY
+        self.poll(AtaStatus::BUSY, false);
 
         if self.is_error() {
             warn!("ATA error: {:?} command error", cmd);
@@ -159,7 +170,9 @@ impl AtaBus {
             return Err(storage::DeviceError::InvalidOperation.into());
         }
 
-        // FIXME: poll for the status to be not BUSY and DATA_REQUEST_READY
+        // FIXED: poll for the status to be not BUSY and DATA_REQUEST_READY
+        self.poll(AtaStatus::BUSY, false);
+        self.poll(AtaStatus::DATA_REQUEST_READY, true);
 
         Ok(())
     }
@@ -170,12 +183,22 @@ impl AtaBus {
     pub(super) fn identify_drive(&mut self, drive: u8) -> storage::FsResult<AtaDeviceType> {
         info!("Identifying drive {}", drive);
 
-        // FIXME: use `AtaCommand::IdentifyDevice` to identify the drive
+        // FIXED: use `AtaCommand::IdentifyDevice` to identify the drive
         //      - call `write_command` with `drive` and `0` as the block number
         //      - if the status is empty, return `AtaDeviceType::None`
         //      - else return `DeviceError::Unknown` as `FsError`
+        match self.write_command(drive, 0, AtaCommand::IdentifyDevice) {
+            Err(FsError::DeviceError(DeviceError::UnknownDevice)) => return Ok(AtaDeviceType::None),
+            Err(e) => return Err(e),
+            Ok(()) => {}
+        }
 
-        // FIXME: poll for the status to be not BUSY
+        if self.status().is_empty() {
+            return Ok(AtaDeviceType::None);
+        }
+
+        // FIXED: poll for the status to be not BUSY
+        self.poll(AtaStatus::BUSY, false);
 
         Ok(match (self.cylinder_low(), self.cylinder_high()) {
             // we only support PATA drives
@@ -196,11 +219,15 @@ impl AtaBus {
     pub(super) fn read_pio(&mut self, drive: u8, block: u32, buf: &mut [u8]) -> storage::FsResult {
         self.write_command(drive, block, AtaCommand::ReadPio)?;
 
-        // FIXME: read the data from the data port into the buffer
+        // FIXED: read the data from the data port into the buffer
         //      - use `buf.chunks_mut(2)`
         //      - use `self.read_data()`
         //      - ! pay attention to data endianness
-
+        let chunks = buf.chunks_mut(2);
+        for chunk in chunks {
+            let word = self.read_data();
+            chunk.copy_from_slice(&word.to_le_bytes());
+        }
         if self.is_error() {
             debug!("ATA error: data read error");
             self.debug();
@@ -218,11 +245,15 @@ impl AtaBus {
     pub(super) fn write_pio(&mut self, drive: u8, block: u32, buf: &[u8]) -> storage::FsResult {
         self.write_command(drive, block, AtaCommand::WritePio)?;
 
-        // FIXME: write the data from the buffer into the data port
+        // FIXED: write the data from the buffer into the data port
         //      - use `buf.chunks(2)`
         //      - use `self.write_data()`
         //      - ! pay attention to data endianness
-
+        let chunks = buf.chunks(2);
+        for chunk in chunks {
+            let word = u16::from_le_bytes([chunk[0], chunk[1]]);
+            self.write_data(word);
+        }
         if self.is_error() {
             debug!("ATA error: data write error");
             self.debug();

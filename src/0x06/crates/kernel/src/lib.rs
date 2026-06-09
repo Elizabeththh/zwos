@@ -18,6 +18,7 @@ extern crate libm;
 
 #[macro_use]
 pub mod utils;
+
 pub use utils::*;
 
 #[macro_use]
@@ -33,7 +34,7 @@ pub use alloc::format;
 use boot::BootInfo;
 use uefi::{Status, runtime::ResetType};
 
-use crate::memory::user;
+use crate::{ata::AtaDrive, memory::user};
 
 pub fn init(boot_info: &'static BootInfo) {
     unsafe {
@@ -56,6 +57,7 @@ pub fn init(boot_info: &'static BootInfo) {
     info!("Interrupts Enabled.");
 
     info!("YatSenOS initialized.");
+    AtaDrive::open(0, 0).unwrap();
 }
 
 pub fn wait(init: proc::ProcessId) {
