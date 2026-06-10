@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::{sys_get_time, println};
+use crate::{println, sys_get_time};
 
 const UEFI_TO_UNIX_OFFSET_NS: usize = 946684800 * 1_000_000_000;
 
@@ -21,6 +21,5 @@ pub fn print_time(nanoseconds: usize) {
 
 pub fn sleep(nanoseconds: usize) {
     let start = sys_get_time();
-    while sys_get_time() - start < nanoseconds {
-    }
+    while sys_get_time() - start < nanoseconds {}
 }

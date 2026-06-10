@@ -21,7 +21,11 @@ impl SpinLock {
     pub fn acquire(&self) {
         // FIXED: acquire the lock, spin if the lock is not available
         loop {
-            if self.bolt.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) == Ok(false) {
+            if self
+                .bolt
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                == Ok(false)
+            {
                 break;
             }
             spin_loop();

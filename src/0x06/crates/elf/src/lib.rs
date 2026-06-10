@@ -102,7 +102,9 @@ pub fn unmap_range(
     for page in Page::range(range_start, range_end) {
         let (frame, flush) = page_table.unmap(page)?;
         flush.ignore();
-        unsafe { frame_allocator.deallocate_frame(frame); }
+        unsafe {
+            frame_allocator.deallocate_frame(frame);
+        }
     }
     x86_64::instructions::tlb::flush_all();
 
@@ -127,7 +129,14 @@ pub fn load_elf(
             continue;
         }
 
-        pages_counter += load_segment(elf, physical_offset, &segment, page_table, frame_allocator, user_access)?;
+        pages_counter += load_segment(
+            elf,
+            physical_offset,
+            &segment,
+            page_table,
+            frame_allocator,
+            user_access,
+        )?;
     }
 
     Ok(pages_counter)

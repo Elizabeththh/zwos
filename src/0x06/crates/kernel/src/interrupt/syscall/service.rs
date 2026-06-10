@@ -13,14 +13,17 @@ pub fn spawn_process(args: &SyscallArgs) -> usize {
     // FIXED: handle spawn error, return 0 if failed
     // FIXED: return pid as usize
     unsafe {
-        let name = core::str::from_utf8_unchecked(core::slice::from_raw_parts(args.arg0 as *const u8, args.arg1));
-    
+        let name = core::str::from_utf8_unchecked(core::slice::from_raw_parts(
+            args.arg0 as *const u8,
+            args.arg1,
+        ));
+
         if let Some(pid) = spawn(name) {
             usize::from(u16::from(pid))
         } else {
             0
         }
-    }   
+    }
 }
 
 pub fn sys_write(args: &SyscallArgs) -> usize {
@@ -31,9 +34,7 @@ pub fn sys_write(args: &SyscallArgs) -> usize {
     let fd = args.arg0 as u8;
     let buf_ptr = args.arg1 as *mut u8;
     let buf_len = args.arg2;
-    let buf = unsafe {
-        core::slice::from_raw_parts(buf_ptr, buf_len)
-    };
+    let buf = unsafe { core::slice::from_raw_parts(buf_ptr, buf_len) };
     let proc = get_process_manager().current();
     let ret = proc.write().write(fd, buf);
     ret as usize
@@ -45,9 +46,7 @@ pub fn sys_read(args: &SyscallArgs) -> usize {
     let buf_ptr = args.arg1 as *mut u8;
     let buf_len = args.arg2;
 
-    let buf = unsafe {
-        core::slice::from_raw_parts_mut(buf_ptr, buf_len)
-    };
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_len) };
     let proc = get_process_manager().current();
     let ret = proc.read().read(fd, buf);
     ret as usize

@@ -36,7 +36,7 @@ impl MbrPartition {
     define_field!(u8, 0x05, end_head);
     define_field!(u32, 0x08, begin_lba);
     define_field!(u32, 0x0C, total_lba);
-    
+
     pub fn begin_sector(&self) -> u8 {
         let sector_mask: u8 = 0x3F;
         let begin_sector = self.data.get(0x02).unwrap_or(&0).clone() & sector_mask;
@@ -45,7 +45,8 @@ impl MbrPartition {
 
     pub fn begin_cylinder(&self) -> u16 {
         let high_mask = 0xC0;
-        let high_cylinder_bits: u16 = ((self.data.get(0x02).unwrap_or(&0).clone() & high_mask) as u16) << 2;
+        let high_cylinder_bits: u16 =
+            ((self.data.get(0x02).unwrap_or(&0).clone() & high_mask) as u16) << 2;
         let low_cyliner_bits: u16 = (self.data.get(0x03).unwrap_or(&0).clone()) as u16;
         let begin_cylinder = high_cylinder_bits | low_cyliner_bits;
         begin_cylinder
@@ -59,7 +60,8 @@ impl MbrPartition {
 
     pub fn end_cylinder(&self) -> u16 {
         let high_mask = 0xC0;
-        let high_cylinder_bits: u16 = ((self.data.get(0x06).unwrap_or(&0).clone() & high_mask) as u16) << 2;
+        let high_cylinder_bits: u16 =
+            ((self.data.get(0x06).unwrap_or(&0).clone() & high_mask) as u16) << 2;
         let low_cyliner_bits: u16 = (self.data.get(0x07).unwrap_or(&0).clone()) as u16;
         let end_cylinder = high_cylinder_bits | low_cyliner_bits;
         end_cylinder

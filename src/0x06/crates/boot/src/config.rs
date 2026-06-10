@@ -36,7 +36,7 @@ pub struct Config<'a> {
 
     /// Kernel command line
     pub cmdline: &'a str,
-    
+
     /// Load apps into memory, when no fs implemented in kernel
     pub load_apps: bool,
 

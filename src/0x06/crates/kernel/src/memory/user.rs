@@ -1,9 +1,5 @@
 use linked_list_allocator::LockedHeap;
-use x86_64::{
-    structures::paging::{
-        Size4KiB, mapper::MapToError,
-    },
-};
+use x86_64::structures::paging::{Size4KiB, mapper::MapToError};
 
 use crate::proc::PageTableContext;
 
@@ -27,7 +23,13 @@ pub fn init_user_heap() -> Result<(), MapToError<Size4KiB>> {
 
     // FIXED: use elf::map_range to allocate & map
     //        frames (R/W/User Access)
-    elf::map_range(USER_HEAP_START as u64, USER_HEAP_PAGE as u64, mapper, frame_allocator, true)?;
+    elf::map_range(
+        USER_HEAP_START as u64,
+        USER_HEAP_PAGE as u64,
+        mapper,
+        frame_allocator,
+        true,
+    )?;
 
     unsafe {
         USER_ALLOCATOR

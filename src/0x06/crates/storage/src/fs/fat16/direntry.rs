@@ -58,9 +58,19 @@ impl DirEntry {
     pub fn parse(data: &[u8]) -> FsResult<DirEntry> {
         let filename = ShortFileName::new(&data[..11]);
 
-        // FIXME: parse the rest of the fields
+        // FIXED: parse the rest of the fields
         //      - ensure you can pass the test
         //      - you may need `parse_datetime` function
+        let attributes = Attributes::from_bits_truncate(data[11]);
+        let created_time = parse_datetime(u32::from_le_bytes(data[14..18].try_into().unwrap()));
+        let access_date = u16::from_le_bytes(data[18..20].try_into().unwrap());
+        let accessed_time = parse_datetime((access_date as u32) << 16);
+
+        let modified_time = parse_datetime(u32::from_le_bytes(data[22..26].try_into().unwrap()));
+
+        let cluster = u16::from_le_bytes(data[26..28].try_into().unwrap()) as u32;
+
+        let size = u32::from_le_bytes(data[28..32].try_into().unwrap());
 
         Ok(DirEntry {
             filename,
@@ -76,11 +86,28 @@ impl DirEntry {
     pub fn as_meta(&self) -> Metadata {
         self.into()
     }
+
+    pub fn is_directory(&self) -> bool {
+        self.attributes.contains(Attributes::DIRECTORY)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.filename.is_eod() && !self.filename.is_unused()
+    }
+
+    pub fn is_long_name(&self) -> bool {
+        self.attributes == Attributes::LFN
+    }
 }
 
 fn parse_datetime(time: u32) -> FsTime {
-    // FIXME: parse the year, month, day, hour, min, sec from time
-
+    // FIXED: parse the year, month, day, hour, min, sec from time
+    let year = ((time >> 25) & 0x7F) as i32 + 1980;
+    let month = ((time >> 21) & 0x0F) as u32;
+    let day = ((time >> 16) & 0x1F) as u32;
+    let hour = ((time >> 11) & 0x1F) as u32;
+    let min = ((time >> 5) & 0x3F) as u32;
+    let sec = (time & 0x1F) as u32 * 2;
     if let Single(time) = Utc.with_ymd_and_hms(year, month, day, hour, min, sec) {
         time
     } else {
@@ -124,18 +151,66 @@ impl ShortFileName {
 
     /// Parse a short file name from a string
     pub fn parse(name: &str) -> FsResult<ShortFileName> {
-        // FIXME: implement the parse function
-        //      use `FilenameError` and into `FsError`
-        //      use different error types for following conditions:
-        //
-        //      - use 0x20 ' ' for right padding
-        //      - check if the filename is empty
-        //      - check if the name & ext are too long
-        //      - period `.` means the start of the file extension
-        //      - check if the period is misplaced (after 8 characters)
-        //      - check if the filename contains invalid characters:
-        //        [0x00..=0x1F, 0x20, 0x22, 0x2A, 0x2B, 0x2C, 0x2F, 0x3A, 0x3B,
-        //        0x3C, 0x3D, 0x3E, 0x3F, 0x5B, 0x5C, 0x5D, 0x7C]
+        fn is_invalid_character(c: u8) -> bool {
+            matches!(
+                c,
+                0x00..=0x1F
+                    | 0x20
+                    | 0x22
+                    | 0x2A
+                    | 0x2B
+                    | 0x2C
+                    | 0x2F
+                    | 0x3A
+                    | 0x3B
+                    | 0x3C
+                    | 0x3D
+                    | 0x3E
+                    | 0x3F
+                    | 0x5B
+                    | 0x5C
+                    | 0x5D
+                    | 0x7C
+            )
+        }
+
+        let bytes = name.as_bytes();
+
+        if bytes.is_empty() || bytes[0] == 0x00 || bytes[0] == 0x20 || bytes[0] == 0xE5 {
+            return Err(FilenameError::FilenameEmpty.into());
+        }
+
+        let mut period = None;
+        for (i, &c) in bytes.iter().enumerate() {
+            if c == b'.' {
+                if i == 0 || i > 8 || period.is_some() {
+                    return Err(FilenameError::MisplacedPeriod.into());
+                }
+                period = Some(i);
+            } else if is_invalid_character(c) {
+                return Err(FilenameError::InvalidCharacter.into());
+            }
+        }
+
+        let (name, ext) = if let Some(i) = period {
+            (&bytes[..i], &bytes[i + 1..])
+        } else {
+            (bytes, &[][..])
+        };
+
+        if name.len() > 8 || ext.len() > 3 {
+            return Err(FilenameError::NameTooLong.into());
+        }
+
+        let mut short_name = ShortFileName {
+            name: [0x20; 8],
+            ext: [0x20; 3],
+        };
+
+        short_name.name[..name.len()].copy_from_slice(name);
+        short_name.ext[..ext.len()].copy_from_slice(ext);
+
+        Ok(short_name)
     }
 }
 

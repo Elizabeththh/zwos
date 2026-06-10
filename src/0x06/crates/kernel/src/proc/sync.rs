@@ -95,7 +95,9 @@ impl SemaphoreSet {
 
         // FIXED: insert a new semaphore into the sems
         //          use `insert(/* ... */).is_none()`
-        self.sems.insert(SemaphoreId(key), Mutex::new(Semaphore::new(value))).is_none()
+        self.sems
+            .insert(SemaphoreId(key), Mutex::new(Semaphore::new(value)))
+            .is_none()
     }
 
     pub fn remove(&mut self, key: u32) -> bool {
@@ -119,7 +121,6 @@ impl SemaphoreSet {
         } else {
             SemaphoreResult::NotExist
         }
-
     }
 
     /// Signal the semaphore (release/up/verhogen)

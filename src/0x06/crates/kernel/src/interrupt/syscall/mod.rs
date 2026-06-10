@@ -4,7 +4,10 @@ use alloc::format;
 use syscall_def::Syscall;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-use crate::{memory::gdt, proc::{self, *}};
+use crate::{
+    memory::gdt,
+    proc::{self, *},
+};
 
 mod service;
 // FIXED: write syscall service handler in `service.rs`
@@ -53,17 +56,22 @@ pub fn dispatcher(context: &mut ProcessContext) {
 
     match args.syscall {
         // fd: arg0 as u8, buf: &[u8] (ptr: arg1 as *const u8, len: arg2)
-        Syscall::Read => { /* FIXED: read from fd & return length */ 
+        Syscall::Read => {
+            /* FIXED: read from fd & return length */
             context.set_rax(sys_read(&args));
         }
         // fd: arg0 as u8, buf: &[u8] (ptr: arg1 as *const u8, len: arg2)
-        Syscall::Write => { /* FIXED: write to fd & return length */
+        Syscall::Write => {
+            /* FIXED: write to fd & return length */
             context.set_rax(sys_write(&args));
         }
 
         // None -> pid: u16
-        Syscall::GetPid => { /* FIXED: get current pid */
-            context.set_rax(usize::from(u16::from(get_process_manager().current().pid())))
+        Syscall::GetPid => {
+            /* FIXED: get current pid */
+            context.set_rax(usize::from(u16::from(
+                get_process_manager().current().pid(),
+            )))
         }
 
         Syscall::Fork => {
@@ -71,19 +79,21 @@ pub fn dispatcher(context: &mut ProcessContext) {
         }
 
         // path: &str (ptr: arg0 as *const u8, len: arg1) -> pid: u16
-        Syscall::Spawn => { /* FIXED: spawn process from name */
+        Syscall::Spawn => {
+            /* FIXED: spawn process from name */
             context.set_rax(spawn_process(&args));
         }
         // ret: arg0 as isize
-        Syscall::Exit => { /* FIXED: exit process with retcode */
+        Syscall::Exit => {
+            /* FIXED: exit process with retcode */
             exit_process(&args, context);
         }
         // pid: arg0 as u16 -> status: isize
-        Syscall::WaitPid => { /* FIXED: check if the process is running or get retcode */
+        Syscall::WaitPid => {
+            /* FIXED: check if the process is running or get retcode */
             proc::wait_pid(ProcessId(args.arg0 as u16), context);
         }
-        
-        
+
         // op: u8, key: u32, val: usize -> ret: any
         Syscall::Sem => sys_sem(&args, context),
 
@@ -92,11 +102,13 @@ pub fn dispatcher(context: &mut ProcessContext) {
         }
 
         // None
-        Syscall::Stat => { /* FIXED: list processes */
+        Syscall::Stat => {
+            /* FIXED: list processes */
             list_process();
         }
         // None
-        Syscall::ListApp => { /* FIXED: list available apps */
+        Syscall::ListApp => {
+            /* FIXED: list available apps */
             list_app();
         }
 

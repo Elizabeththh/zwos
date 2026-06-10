@@ -6,14 +6,11 @@ use x86_64::{
     structures::paging::{Mapper, Page, mapper::MapToError, page::*},
 };
 
-use crate::memory::{PAGE_SIZE, physical_to_virtual};
 use super::{FrameAllocatorRef, MapperRef};
-
-
+use crate::memory::{PAGE_SIZE, physical_to_virtual};
 
 // 0xffff_ff00_0000_0000 is the kernel's address space
 pub struct StackConsts {
-    
     pub stack_max_addr: u64,
     pub stack_max_pages: u64,
     pub stack_max_size: u64,
@@ -23,11 +20,11 @@ pub struct StackConsts {
     pub stack_def_bot: u64,
     pub stack_def_page: u64,
     pub stack_def_size: u64,
-    
+
     pub stack_init_bot: u64,
     pub stack_init_top: u64,
 
-    stack_init_top_page: Page<Size4KiB>
+    stack_init_top_page: Page<Size4KiB>,
 }
 
 pub static STACK_CONSTS: spin::Once<StackConsts> = spin::Once::new();
@@ -35,7 +32,6 @@ pub static STACK_CONSTS: spin::Once<StackConsts> = spin::Once::new();
 // [bot..0xffffff0100000000..top..0xffffff01ffffffff]
 // kernel stack
 pub struct KernelStackConsts {
-
     pub kstack_max_addr: u64,
     pub kstack_def_bot: u64,
     pub kstack_def_page: u64,
@@ -60,9 +56,9 @@ pub fn consts_init(boot_info: &'static BootInfo) {
         let stack_def_size = stack_def_page * PAGE_SIZE;
         let stack_init_bot = stack_max_addr - stack_def_size;
         let stack_init_top = stack_max_addr - 8;
-        
+
         let stack_init_top_page = Page::containing_address(VirtAddr::new(stack_init_top));
-        
+
         StackConsts {
             stack_max_addr,
             stack_max_pages,
@@ -116,14 +112,20 @@ impl Stack {
 
     pub fn empty() -> Self {
         Self {
-            range: Page::range(STACK_CONSTS.wait().stack_init_top_page, STACK_CONSTS.wait().stack_init_top_page),
+            range: Page::range(
+                STACK_CONSTS.wait().stack_init_top_page,
+                STACK_CONSTS.wait().stack_init_top_page,
+            ),
             usage: 0,
         }
     }
 
     pub fn kstack() -> Self {
         Self {
-            range: Page::range(KERNEL_STACK_CONSTS.wait().kstack_init_page, KERNEL_STACK_CONSTS.wait().kstack_init_top_page),
+            range: Page::range(
+                KERNEL_STACK_CONSTS.wait().kstack_init_page,
+                KERNEL_STACK_CONSTS.wait().kstack_init_top_page,
+            ),
             usage: KERNEL_STACK_CONSTS.wait().kstack_def_page,
         }
     }
@@ -131,7 +133,14 @@ impl Stack {
     pub fn init(&mut self, mapper: MapperRef, alloc: FrameAllocatorRef) {
         debug_assert!(self.usage == 0, "Stack is not empty.");
 
-        self.range = elf::map_range(STACK_CONSTS.wait().stack_init_bot, STACK_CONSTS.wait().stack_def_page, mapper, alloc, true).unwrap();
+        self.range = elf::map_range(
+            STACK_CONSTS.wait().stack_init_bot,
+            STACK_CONSTS.wait().stack_def_page,
+            mapper,
+            alloc,
+            true,
+        )
+        .unwrap();
         self.usage = STACK_CONSTS.wait().stack_def_page;
     }
 
@@ -158,7 +167,8 @@ impl Stack {
         let cur_stack_bot = self.range.start.start_address().as_u64();
         trace!("Current stack bot: {:#x}", cur_stack_bot);
         trace!("Address to access: {:#x}", addr);
-        addr & STACK_CONSTS.wait().stack_start_mask == cur_stack_bot & STACK_CONSTS.wait().stack_start_mask
+        addr & STACK_CONSTS.wait().stack_start_mask
+            == cur_stack_bot & STACK_CONSTS.wait().stack_start_mask
     }
 
     fn grow_stack(
@@ -173,14 +183,13 @@ impl Stack {
         let fault_page = Page::<Size4KiB>::containing_address(addr);
         let cur_range = self.range;
 
-
         // Page range is left inclusive, right exclusive. This should be greater than instead of greater or equal to.
         if fault_page >= cur_range.start {
             return Err(MapToError::PageAlreadyMapped(
-                mapper.
-                translate_page(fault_page).
-                expect("could not translate, not already mapped")
-            ))
+                mapper
+                    .translate_page(fault_page)
+                    .expect("could not translate, not already mapped"),
+            ));
         }
 
         let new_page_count = cur_range.start - fault_page;
@@ -191,11 +200,12 @@ impl Stack {
             return Err(MapToError::FrameAllocationFailed);
         }
 
-        elf::map_range(fault_page.start_address().as_u64(),
-        new_page_count,
-        mapper,
-        alloc,
-        true
+        elf::map_range(
+            fault_page.start_address().as_u64(),
+            new_page_count,
+            mapper,
+            alloc,
+            true,
         )?;
 
         self.range = Page::range(fault_page, cur_range.end);
@@ -220,11 +230,17 @@ impl Stack {
         let child_stack_bot = self.range.start.start_address().as_u64() - stack_offset_bytes;
 
         // FIXED: alloc & map new stack for child (see instructions)
-        let child_range = elf::map_range(child_stack_bot, self.usage, mapper, alloc, true).expect("Failed to map child stack");
-        
+        let child_range = elf::map_range(child_stack_bot, self.usage, mapper, alloc, true)
+            .expect("Failed to map child stack");
+
         // FIXED: copy the *entire stack* from parent to child
         // self.clone_range(self.range.start.start_address().as_u64(), child_stack_bot, self.usage);            using parent's page table to clone, will cause error when child's new P4 entry is be created
-        self.clone_range_to_child(self.range.start.start_address().as_u64(), child_range.start, mapper, self.usage);
+        self.clone_range_to_child(
+            self.range.start.start_address().as_u64(),
+            child_range.start,
+            mapper,
+            self.usage,
+        );
 
         // FIXED: return the new stack
         Self {

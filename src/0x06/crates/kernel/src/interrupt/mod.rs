@@ -1,8 +1,8 @@
 mod apic;
-mod consts;
 pub mod clock;
-mod serial;
+mod consts;
 mod exceptions;
+mod serial;
 mod syscall;
 
 use apic::*;
@@ -29,24 +29,19 @@ pub fn init() {
 
     if XApic::support() {
         // FIXED: check and init APIC
-        let mut lapic = unsafe {
-            XApic::new(physical_to_virtual(LAPIC_ADDR))
-        };
+        let mut lapic = unsafe { XApic::new(physical_to_virtual(LAPIC_ADDR)) };
         lapic.cpu_init();
         info!("APIC Initialized.");
 
         // FIXED: enable serial irq with IO APIC (use enable_irq)
-        let mut ioapic = unsafe {
-            IoApic::new(physical_to_virtual(IOAPIC_ADDR))
-        };
+        let mut ioapic = unsafe { IoApic::new(physical_to_virtual(IOAPIC_ADDR)) };
         ioapic.disable_all();
         enable_irq(Irq::Serial0 as u8, 0);
         info!("IOAPIC Enabled.");
     } else {
         info!("APIC is not supported.");
     }
-    
-    
+
     info!("Interrupts Initialized.");
 }
 

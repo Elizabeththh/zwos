@@ -92,7 +92,6 @@ pub fn load_apps() -> AppList {
         _ => panic!("\\APP\\ is not a directory"),
     };
 
-
     let mut apps = ArrayVec::new();
     let mut entry_buf = [0u8; 0x100];
 
@@ -112,7 +111,7 @@ pub fn load_apps() -> AppList {
 
                 let mut file = match file {
                     FileType::Regular(regular) => regular,
-                    _ => continue
+                    _ => continue,
                 };
 
                 let elf = {

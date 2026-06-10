@@ -1,8 +1,8 @@
 use alloc::string::String;
 
+use crate::drivers;
 use hashbrown::HashMap;
 use spin::Mutex;
-use crate::drivers;
 
 #[derive(Debug, Clone)]
 pub enum StdIO {

@@ -2,7 +2,7 @@
 
 use core::ptr::NonNull;
 
-use arrayvec::{ArrayVec, ArrayString};
+use arrayvec::{ArrayString, ArrayVec};
 pub use uefi::{
     Status,
     boot::{MemoryAttribute, MemoryDescriptor, MemoryType},

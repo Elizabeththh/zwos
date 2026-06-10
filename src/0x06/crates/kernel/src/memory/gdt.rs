@@ -58,7 +58,7 @@ lazy_static! {
             );
             stack_end
         };
-        
+
         // Allocate IST stack for Page Fault
         tss.interrupt_stack_table[PAGE_FAULT_IST_INDEX as usize] = {
             const STACK_SIZE: usize = IST_SIZES[1];
@@ -123,7 +123,7 @@ lazy_static! {
             UserSelectors {
                 code_selector: user_code_selector,
                 data_selector: user_data_selector,
-            }
+            },
         )
     };
 }

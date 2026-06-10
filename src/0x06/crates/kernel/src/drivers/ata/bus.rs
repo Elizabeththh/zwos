@@ -188,7 +188,9 @@ impl AtaBus {
         //      - if the status is empty, return `AtaDeviceType::None`
         //      - else return `DeviceError::Unknown` as `FsError`
         match self.write_command(drive, 0, AtaCommand::IdentifyDevice) {
-            Err(FsError::DeviceError(DeviceError::UnknownDevice)) => return Ok(AtaDeviceType::None),
+            Err(FsError::DeviceError(DeviceError::UnknownDevice)) => {
+                return Ok(AtaDeviceType::None);
+            }
             Err(e) => return Err(e),
             Ok(()) => {}
         }

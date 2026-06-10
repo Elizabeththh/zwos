@@ -14,7 +14,6 @@ pub fn test() -> ! {
             print!("\r{:-6} => Tick!", id);
         }
         x86_64::instructions::hlt();
-
     }
 }
 

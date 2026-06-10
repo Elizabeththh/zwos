@@ -3,9 +3,12 @@
 
 use lib::sync::{Semaphore, SpinLock};
 
-use lib::{entry, println, semaphore_array, sleep, sys_fork, sys_get_pid, sys_get_time, sys_stat, sys_wait_pid};
-use rand_chacha::rand_core::{SeedableRng, RngCore};
+use lib::{
+    entry, println, semaphore_array, sleep, sys_fork, sys_get_pid, sys_get_time, sys_stat,
+    sys_wait_pid,
+};
 use rand_chacha::ChaCha20Rng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 extern crate lib;
 static CHOPSTICK: [Semaphore; 5] = semaphore_array![0, 1, 2, 3, 4];
@@ -22,7 +25,7 @@ fn main() -> isize {
     let mut philos = [0u16; 5];
     for i in 0..5 {
         let pid = sys_fork();
-        if pid == 0  {
+        if pid == 0 {
             loop {
                 think();
                 eat(i);
@@ -40,7 +43,7 @@ fn main() -> isize {
 
     for i in 0..5 {
         sys_wait_pid(philos[i]);
-    };
+    }
     0
 }
 

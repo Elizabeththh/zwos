@@ -47,12 +47,24 @@ impl AtaDrive {
         if let Ok(AtaDeviceType::Pata(res)) = BUSES[bus as usize].lock().identify_drive(drive) {
             let buf = res.map(u16::to_be_bytes).concat();
             /* FIXED: get the serial from buf */
-            let serial = Box::from(String::from_utf8_lossy(&buf[ATA_IDENT_SERIAL..ATA_IDENT_SERIAL + 20]).trim());
-            /* FIXED: get the model from buf */ 
-            let model = Box::from(String::from_utf8_lossy(&buf[ATA_IDENT_MODEL..ATA_IDENT_MODEL + 40]).trim());  
+            let serial = Box::from(
+                String::from_utf8_lossy(&buf[ATA_IDENT_SERIAL..ATA_IDENT_SERIAL + 20]).trim(),
+            );
+            /* FIXED: get the model from buf */
+            let model = Box::from(
+                String::from_utf8_lossy(&buf[ATA_IDENT_MODEL..ATA_IDENT_MODEL + 40]).trim(),
+            );
             /* FIXED: get the block count from buf */
-            let w60 = u16::from_be_bytes(buf[ATA_IDENT_MAX_LBA..ATA_IDENT_MAX_LBA + 2].try_into().unwrap());
-            let w61 = u16::from_be_bytes(buf[ATA_IDENT_MAX_LBA + 2..ATA_IDENT_MAX_LBA + 4].try_into().unwrap());
+            let w60 = u16::from_be_bytes(
+                buf[ATA_IDENT_MAX_LBA..ATA_IDENT_MAX_LBA + 2]
+                    .try_into()
+                    .unwrap(),
+            );
+            let w61 = u16::from_be_bytes(
+                buf[ATA_IDENT_MAX_LBA + 2..ATA_IDENT_MAX_LBA + 4]
+                    .try_into()
+                    .unwrap(),
+            );
             let blocks = (w61 as u32) << 16 | (w60 as u32);
             let ata_drive = Self {
                 bus,

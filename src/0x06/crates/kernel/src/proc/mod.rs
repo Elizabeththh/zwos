@@ -8,7 +8,11 @@ mod processor;
 mod sync;
 pub mod vm;
 
-use alloc::{string::{String, ToString}, sync::Arc, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use xmas_elf::ElfFile;
 
 pub use context::ProcessContext;
@@ -17,8 +21,8 @@ use manager::*;
 pub use paging::PageTableContext;
 pub use pid::ProcessId;
 use process::*;
-use x86_64::{VirtAddr, structures::idt::PageFaultErrorCode};
 use vm::ProcessVm;
+use x86_64::{VirtAddr, structures::idt::PageFaultErrorCode};
 
 use crate::proc::{sync::SemaphoreResult, vm::stack::KERNEL_STACK_CONSTS};
 
@@ -39,19 +43,29 @@ pub fn init(boot_info: &'static boot::BootInfo) {
     let kernel_stack_consts = KERNEL_STACK_CONSTS.wait();
 
     proc_dt.set_env("kernel_version", env!("CARGO_PKG_VERSION"));
-    proc_dt.set_env("kernel_max_address", &kernel_stack_consts.kstack_max_addr.to_string());
-    proc_dt.set_env("kernel_init_top", &kernel_stack_consts.kstack_init_top.to_string());
-    proc_dt.set_env("kernel_init_bot", &kernel_stack_consts.kstack_init_bot.to_string());
+    proc_dt.set_env(
+        "kernel_max_address",
+        &kernel_stack_consts.kstack_max_addr.to_string(),
+    );
+    proc_dt.set_env(
+        "kernel_init_top",
+        &kernel_stack_consts.kstack_init_top.to_string(),
+    );
+    proc_dt.set_env(
+        "kernel_init_bot",
+        &kernel_stack_consts.kstack_init_bot.to_string(),
+    );
 
     trace!("Init kernel vm: {:#?}", proc_vm);
 
     // kernel process
     // FIXED: create kernel process
-    let kproc = {
-        Process::new(String::from("kernel"), None, Some(proc_vm), Some(proc_dt))
-    };
+    let kproc = { Process::new(String::from("kernel"), None, Some(proc_vm), Some(proc_dt)) };
 
-    kproc.write().vm_mut().set_code_pages_usage(boot_info.kernel_pages_usage);
+    kproc
+        .write()
+        .vm_mut()
+        .set_code_pages_usage(boot_info.kernel_pages_usage);
 
     let app_list = boot_info.loaded_apps.as_ref();
     manager::init(kproc, app_list);
@@ -69,7 +83,7 @@ pub fn switch(context: &mut ProcessContext) {
         process_manager.save_current(context);
 
         process_manager.push_ready(old_pid);
-        
+
         // restore next process's context
         process_manager.switch_next(context);
     });
@@ -135,12 +149,18 @@ pub fn print_process_list() {
 pub fn env(key: &str) -> Option<String> {
     x86_64::instructions::interrupts::without_interrupts(|| {
         // FIXED: get current process's environment variable
-        get_process_manager().get_proc(&processor::get_pid()).expect("No Process Found Based On Provided PID").read().env(key)
+        get_process_manager()
+            .get_proc(&processor::get_pid())
+            .expect("No Process Found Based On Provided PID")
+            .read()
+            .env(key)
     })
 }
 
 pub fn get_process_manager() -> &'static ProcessManager {
-    PROCESS_MANAGER.get().expect("Could not get Process Manager")
+    PROCESS_MANAGER
+        .get()
+        .expect("Could not get Process Manager")
 }
 
 pub fn read(fd: u8, buf: &mut [u8]) -> isize {
@@ -161,7 +181,7 @@ pub fn still_alive(pid: ProcessId) -> bool {
         let status = get_process_manager().proc_status(pid);
         match status {
             ProgramStatus::Dead => false,
-            _ => true
+            _ => true,
         }
     })
 }
@@ -177,7 +197,11 @@ pub fn process_exit(ret: isize) -> ! {
 
 pub fn exit_code(pid: &ProcessId) -> Option<isize> {
     x86_64::instructions::interrupts::without_interrupts(|| {
-        get_process_manager().get_proc(pid).expect("No Process Found Based On Provided PID").read().exit_code()
+        get_process_manager()
+            .get_proc(pid)
+            .expect("No Process Found Based On Provided PID")
+            .read()
+            .exit_code()
     })
 }
 
@@ -187,9 +211,11 @@ pub fn current_pid() -> ProcessId {
 
 pub fn current_process_name_safe() -> Option<String> {
     let pid = processor::get_pid();
-    get_process_manager().get_proc(&pid).and_then(|p| p.try_read().map(|inner| inner.name().to_string()))
+    get_process_manager()
+        .get_proc(&pid)
+        .and_then(|p| p.try_read().map(|inner| inner.name().to_string()))
 }
- 
+
 pub fn handle_page_fault(addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
     x86_64::instructions::interrupts::without_interrupts(|| {
         get_process_manager().handle_page_fault(addr, err_code)
@@ -248,7 +274,11 @@ pub fn sem_wait(key: u32, context: &mut ProcessContext) {
                 //        use `save_current` and `switch_next`
                 context.set_rax(0);
                 manager.save_current(context);
-                manager.get_proc(&pid).expect("Could not get process").write().block();
+                manager
+                    .get_proc(&pid)
+                    .expect("Could not get process")
+                    .write()
+                    .block();
                 manager.switch_next(context);
             }
             _ => unreachable!(),
@@ -279,13 +309,17 @@ pub fn sem_signal(key: u32, context: &mut ProcessContext) {
         match ret {
             SemaphoreResult::NotExist => {
                 context.set_rax(1);
-            },
+            }
             SemaphoreResult::WakeUp(pid) => {
                 // set before `save_current`
-                manager.get_proc(&pid).expect("Could not get process").write().pause();
+                manager
+                    .get_proc(&pid)
+                    .expect("Could not get process")
+                    .write()
+                    .pause();
                 manager.push_ready(pid);
                 context.set_rax(0);
-            },
+            }
             _ => context.set_rax(0),
         }
     })

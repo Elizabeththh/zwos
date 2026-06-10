@@ -58,8 +58,18 @@ impl ProcessVm {
         let frame_allocator = &mut *get_frame_alloc_for_sure();
         let mut mapper = self.page_table.mapper();
 
-        let range = elf::map_range(stack_bot, consts.stack_def_page, &mut mapper, frame_allocator, true).expect("Failed to Map Process Stack");
-        self.stack = Stack { range, usage: consts.stack_def_page };
+        let range = elf::map_range(
+            stack_bot,
+            consts.stack_def_page,
+            &mut mapper,
+            frame_allocator,
+            true,
+        )
+        .expect("Failed to Map Process Stack");
+        self.stack = Stack {
+            range,
+            usage: consts.stack_def_page,
+        };
 
         VirtAddr::new(stack_top)
     }
@@ -75,7 +85,7 @@ impl ProcessVm {
         (self.code_pages_usage + self.stack.usage) * PAGE_SIZE
     }
 
-    pub fn dealloc_proc_stack(&mut self) -> Result<(), UnmapError>{
+    pub fn dealloc_proc_stack(&mut self) -> Result<(), UnmapError> {
         let frame_allocator = &mut *get_frame_alloc_for_sure();
         let mut mapper = self.page_table.mapper();
         let range = self.stack.range;
@@ -100,7 +110,6 @@ impl ProcessVm {
             code_pages_usage: self.code_pages_usage,
         }
     }
-
 }
 
 impl core::fmt::Debug for ProcessVm {

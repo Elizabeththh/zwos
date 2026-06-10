@@ -70,13 +70,32 @@ fn efi_main() -> Status {
     }
 
     // map physical memory to specific virtual address offset
-    map_physical_memory(config.physical_memory_offset, max_phys_addr, &mut page_table, &mut UEFIFrameAllocator);
+    map_physical_memory(
+        config.physical_memory_offset,
+        max_phys_addr,
+        &mut page_table,
+        &mut UEFIFrameAllocator,
+    );
 
     // load and map the kernel elf file
-    let usage =load_elf(&elf, config.physical_memory_offset, &mut page_table, &mut UEFIFrameAllocator, false).expect("Failed to load ELF");
+    let usage = load_elf(
+        &elf,
+        config.physical_memory_offset,
+        &mut page_table,
+        &mut UEFIFrameAllocator,
+        false,
+    )
+    .expect("Failed to load ELF");
 
     // map kernel stack
-    elf::map_range(config.kernel_stack_addr, config.kernel_stack_size, &mut page_table, &mut UEFIFrameAllocator, false).expect("Failed to map kernel stack");
+    elf::map_range(
+        config.kernel_stack_addr,
+        config.kernel_stack_size,
+        &mut page_table,
+        &mut UEFIFrameAllocator,
+        false,
+    )
+    .expect("Failed to map kernel stack");
 
     // recover write protect (Cr0)
     unsafe {

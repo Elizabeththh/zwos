@@ -38,9 +38,10 @@ impl LocalApic for XApic {
     /// If this type APIC is supported
     fn support() -> bool {
         // FIXED: Check CPUID to see if xAPIC is supported.
-        CpuId::new().get_feature_info().map(
-            |f| f.has_apic()
-        ).unwrap_or(false)
+        CpuId::new()
+            .get_feature_info()
+            .map(|f| f.has_apic())
+            .unwrap_or(false)
     }
 
     /// Initialize the xAPIC for the current CPU.
@@ -72,10 +73,10 @@ impl LocalApic for XApic {
             // FIXED: Disable logical interrupt lines (LINT0, LINT1)
             self.write(0x350, !LVTTimerFlags::CLEAR_MASK.bits());
             self.write(0x360, !LVTTimerFlags::CLEAR_MASK.bits());
-            
+
             // FIXED: Disable performance counter overflow interrupts (PCINT)
             self.write(0x340, !LVTTimerFlags::CLEAR_MASK.bits());
-            
+
             // FIXED: Map error interrupt to IRQ_ERROR.
             let mut lvt_error = self.read(0x370);
             lvt_error &= !(0xFF);

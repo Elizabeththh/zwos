@@ -15,12 +15,17 @@ pub struct Fat16Bpb {
 }
 
 impl Fat16Bpb {
-    /// Attempt to parse a Boot Parameter Block from a 512 byte sector.
+    /// Attempt to parse a Boot Parameter Block from the first 512 bytes of the
+    /// boot sector.
     pub fn new(data: &[u8]) -> FsResult<Fat16Bpb> {
-        let data = data.try_into().unwrap();
+        if data.len() < 512 {
+            return Err(FsError::InvalidOperation);
+        }
+
+        let data = data[..512].try_into().unwrap();
         let bpb = Fat16Bpb { data };
 
-        if bpb.data.len() != 512 || bpb.trail() != 0xAA55 {
+        if bpb.trail() != 0xAA55 || !matches!(bpb.bytes_per_sector(), 512 | 1024 | 2048 | 4096) {
             return Err(FsError::InvalidOperation);
         }
 
@@ -35,10 +40,30 @@ impl Fat16Bpb {
         }
     }
 
-    // FIXME: define all the fields in the BPB
+    // FIXED: define all the fields in the BPB
     //      - use `define_field!` macro
     //      - ensure you can pass the tests
     //      - you may change the field names if you want
+    define_field!([u8; 8], 3, oem_name);
+    define_field!(u16, 11, bytes_per_sector);
+    define_field!(u8, 13, sectors_per_cluster);
+    define_field!(u16, 14, reserved_sector_count);
+    define_field!(u8, 16, fat_count);
+    define_field!(u16, 17, root_entries_count);
+    define_field!(u16, 19, total_sectors_16);
+    define_field!(u8, 21, media_descriptor);
+    define_field!(u16, 22, sectors_per_fat);
+    define_field!(u16, 24, sectors_per_track);
+    define_field!(u16, 26, track_count);
+    define_field!(u32, 28, hidden_sectors);
+    define_field!(u32, 32, total_sectors_32);
+    define_field!(u8, 36, drive_number);
+    define_field!(u8, 37, reserved_flags);
+    define_field!(u8, 38, boot_signature);
+    define_field!(u32, 39, volume_id);
+    define_field!([u8; 11], 43, volume_label);
+    define_field!([u8; 8], 54, system_identifier);
+    define_field!(u16, 510, trail);
 }
 
 impl core::fmt::Debug for Fat16Bpb {

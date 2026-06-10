@@ -1,11 +1,15 @@
-use alloc::{format, sync::{Arc, Weak}, vec::Vec};
+use alloc::{
+    format,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 
 use spin::*;
 use x86_64::structures::paging::mapper::UnmapError;
 
 use super::*;
-use crate::proc::{self, ProgramStatus::Ready, sync::SemaphoreResult, vm::stack::STACK_CONSTS};
 use crate::humanized_size;
+use crate::proc::{self, ProgramStatus::Ready, sync::SemaphoreResult, vm::stack::STACK_CONSTS};
 
 pub struct Process {
     pid: ProcessId,
@@ -77,7 +81,7 @@ impl Process {
         })
     }
 
-    pub fn kill(&self, ret: isize){
+    pub fn kill(&self, ret: isize) {
         let mut inner = self.inner.write();
 
         debug!(
@@ -97,7 +101,7 @@ impl Process {
     pub fn fork(self: &Arc<Self>) -> Arc<Self> {
         let parent = Arc::downgrade(self);
         let child_pid = ProcessId::new();
-        
+
         // FIXED: lock inner as write
         let mut inner = self.write();
         let stack_offset_count = (child_pid.0 - self.pid().0) as u64;
@@ -108,7 +112,10 @@ impl Process {
         //          e.g. parent, name, pid, etc.
 
         // FIXED: make the arc of child
-        let child_proc = Arc::new(Self {pid: child_pid, inner: RwLock::new(child_inner)});
+        let child_proc = Arc::new(Self {
+            pid: child_pid,
+            inner: RwLock::new(child_inner),
+        });
         // FIXED: add child to current process's children list
         inner.children.push(child_proc.clone());
         // FIXED: set fork ret value for parent with `context.set_rax`
@@ -149,7 +156,11 @@ impl ProcessInner {
     }
 
     pub fn clone_page_table(&self) -> PageTableContext {
-        self.proc_vm.as_ref().expect("No Process VM Found").page_table.clone_level_4()
+        self.proc_vm
+            .as_ref()
+            .expect("No Process VM Found")
+            .page_table
+            .clone_level_4()
     }
 
     pub fn is_ready(&self) -> bool {
@@ -185,7 +196,7 @@ impl ProcessInner {
         self.resume();
     }
 
-    fn dealloc_stack_page(&mut self) -> Result<(), UnmapError>{
+    fn dealloc_stack_page(&mut self) -> Result<(), UnmapError> {
         self.vm_mut().dealloc_proc_stack()?;
         Ok(())
     }
@@ -194,19 +205,21 @@ impl ProcessInner {
         self.parent.as_ref().and_then(|p| p.upgrade())
     }
 
-    pub fn kill(&mut self, ret: isize){
+    pub fn kill(&mut self, ret: isize) {
         // FIXED: set exit code
         self.exit_code = Some(ret);
         // FIXED: set status to dead
         self.status = proc::ProgramStatus::Dead;
-        
+
         // TODO dealloc page table stack and code segment
         if let Err(_) = self.dealloc_stack_page() {
-            println!("Unmap stack pages failed when killing process#{}", self.name);
-        }           // FIXED: take and drop unused resources
+            println!(
+                "Unmap stack pages failed when killing process#{}",
+                self.name
+            );
+        } // FIXED: take and drop unused resources
         self.proc_data.take();
         self.proc_vm.take();
-
     }
 
     pub fn set_return_code(&mut self, value: usize) {
@@ -222,16 +235,17 @@ impl ProcessInner {
         let child_vm = self.vm().fork(stack_offset_count);
 
         let mut child_ctx_value = self.context.as_ref().as_ptr().read();
-        
+
         let consts = STACK_CONSTS.wait();
         let stack_offset_bytes = stack_offset_count * consts.stack_max_size;
-        
+
         // FIXED: update `rsp` in interrupt stack frame
-        child_ctx_value.stack_frame.stack_pointer = VirtAddr::new(child_ctx_value.stack_frame.stack_pointer.as_u64() - stack_offset_bytes);
+        child_ctx_value.stack_frame.stack_pointer =
+            VirtAddr::new(child_ctx_value.stack_frame.stack_pointer.as_u64() - stack_offset_bytes);
         let parent_stack = self.vm().stack.range;
         let parent_stack_start = parent_stack.start.start_address().as_u64();
         let parent_stack_end = parent_stack.end.start_address().as_u64();
-        
+
         let parent_rbp = self.context.regs.rbp as u64;
         if parent_stack_start <= parent_rbp && parent_rbp < parent_stack_end {
             child_ctx_value.regs.rbp = (parent_rbp - stack_offset_bytes) as usize;
@@ -332,10 +346,14 @@ impl core::fmt::Debug for Process {
 impl core::fmt::Display for Process {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let inner = self.inner.read();
-        let mem_str = inner.proc_vm.as_ref().map(|vm| {
-            let (size, unit) = humanized_size(vm.memory_usage());
-            format!("{:.3} {}", size, unit)
-        }).unwrap_or_default();
+        let mem_str = inner
+            .proc_vm
+            .as_ref()
+            .map(|vm| {
+                let (size, unit) = humanized_size(vm.memory_usage());
+                format!("{:.3} {}", size, unit)
+            })
+            .unwrap_or_default();
         write!(
             f,
             " #{:-3} | #{:-3} | {:12} | {:7} | {:?} | {}",

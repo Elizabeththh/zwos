@@ -1,4 +1,8 @@
-use alloc::{collections::*, format, sync::{Arc, Weak}};
+use alloc::{
+    collections::*,
+    format,
+    sync::{Arc, Weak},
+};
 
 use boot::AppListRef;
 use elf::load_elf;
@@ -9,7 +13,6 @@ use xmas_elf::ElfFile;
 use crate::memory::{PHYSICAL_OFFSET, get_frame_alloc_for_sure};
 
 use super::*;
-
 
 pub static PROCESS_MANAGER: spin::Once<ProcessManager> = spin::Once::new();
 
@@ -39,9 +42,9 @@ impl ProcessManager {
         let ready_queue = VecDeque::new();
         let wait_queue = HashMap::default();
         let pid = init.pid();
-        
+
         trace!("Init {:#?}", init);
-        
+
         processes.insert(pid, init);
         Self {
             processes: RwLock::new(processes),
@@ -50,41 +53,41 @@ impl ProcessManager {
             app_list,
         }
     }
-    
+
     #[inline]
     pub fn push_ready(&self, pid: ProcessId) {
         self.ready_queue.lock().push_back(pid);
     }
-    
+
     #[inline]
     fn add_proc(&self, pid: ProcessId, proc: Arc<Process>) {
         self.processes.write().insert(pid, proc);
     }
-    
+
     #[inline]
     pub(super) fn get_proc(&self, pid: &ProcessId) -> Option<Arc<Process>> {
         self.processes.read().get(pid).cloned()
     }
-    
+
     pub fn current(&self) -> Arc<Process> {
         self.get_proc(&processor::get_pid())
             .expect("No current process")
     }
 
     #[inline]
-    pub(super) fn app_list(&self) -> AppListRef{
+    pub(super) fn app_list(&self) -> AppListRef {
         self.app_list
     }
 
     #[inline]
-    pub(super) fn proc_status(&self, pid: ProcessId) ->  ProgramStatus {
+    pub(super) fn proc_status(&self, pid: ProcessId) -> ProgramStatus {
         self.get_proc(&pid).unwrap().read().status()
     }
 
     pub fn read(&self, fd: u8, buf: &mut [u8]) -> isize {
         self.current().read().read(fd, buf)
     }
-    
+
     pub fn write(&self, fd: u8, buf: &[u8]) -> isize {
         self.current().read().write(fd, buf)
     }
@@ -105,7 +108,6 @@ impl ProcessManager {
     }
 
     pub fn switch_next(&self, context: &mut ProcessContext) -> ProcessId {
-
         let old_proc = self.current();
         if old_proc.read().status() == ProgramStatus::Running {
             old_proc.write().pause();
@@ -113,8 +115,14 @@ impl ProcessManager {
         }
 
         // FIXED: fetch the next process from ready queue
-        let pid = self.ready_queue.lock().pop_front().expect("No Process Found In Ready Queue");
-        let proc = self.get_proc(&pid).expect("No Process Found Based on the Provided PID");
+        let pid = self
+            .ready_queue
+            .lock()
+            .pop_front()
+            .expect("No Process Found In Ready Queue");
+        let proc = self
+            .get_proc(&pid)
+            .expect("No Process Found Based on the Provided PID");
 
         // FIXED: restore next process's context
         proc.write().restore(context);
@@ -171,7 +179,8 @@ impl ProcessManager {
         {
             let frame_alloc = &mut *get_frame_alloc_for_sure();
             let mut mapper = inner.vm_mut().page_table.mapper();
-            let code_pages = load_elf(elf, physical_offset, &mut mapper, frame_alloc, true).expect("Failed to load ELF");
+            let code_pages = load_elf(elf, physical_offset, &mut mapper, frame_alloc, true)
+                .expect("Failed to load ELF");
             inner.vm_mut().set_code_pages_usage(code_pages);
         }
         // FIXED: alloc new stack for process
@@ -202,7 +211,9 @@ impl ProcessManager {
 
     pub fn handle_page_fault(&self, addr: VirtAddr, err_code: PageFaultErrorCode) -> bool {
         // FIXED: handle page fault
-        if self.current().read().vm().stack.is_on_stack(addr) && !err_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
+        if self.current().read().vm().stack.is_on_stack(addr)
+            && !err_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION)
+        {
             self.current().write().handle_page_fault(addr)
         } else {
             false
@@ -286,7 +297,7 @@ impl ProcessManager {
         let child_proc = proc.fork();
         // FIXED: add child to process list
         self.add_proc(child_proc.pid(), child_proc.clone());
-        
+
         // FOR DBG: maybe print the process ready queue?
         child_proc.pid()
     }

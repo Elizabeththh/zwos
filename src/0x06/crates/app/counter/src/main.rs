@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
 
-use lib::{sync::{Semaphore, SpinLock}, *};
+use lib::{
+    sync::{Semaphore, SpinLock},
+    *,
+};
 
 extern crate lib;
 
 const THREAD_COUNT: usize = 8;
 static mut COUNTER: isize = 0;
-static SPIN_LOCK: SpinLock  = SpinLock::new();
+static SPIN_LOCK: SpinLock = SpinLock::new();
 static SEMAPHORE: Semaphore = Semaphore::new(1);
 
 fn main() -> isize {
@@ -22,7 +25,6 @@ fn main() -> isize {
     }
     0
 }
-
 
 fn test_spin() {
     println!("testing spin lock...");

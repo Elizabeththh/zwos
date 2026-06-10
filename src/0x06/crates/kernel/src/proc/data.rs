@@ -43,5 +43,4 @@ impl ProcessData {
     pub fn set_env(&mut self, key: &str, val: &str) {
         self.env.write().insert(key.into(), val.into());
     }
-
 }

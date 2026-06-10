@@ -44,7 +44,7 @@ where
             partitions.push(
                 // FIXED: parse the mbr partition from the buffer
                 //      - just ignore other fields for mbr
-                MbrPartition::parse(buffer[offset..offset + 0x10].try_into().unwrap())
+                MbrPartition::parse(buffer[offset..offset + 0x10].try_into().unwrap()),
             );
 
             if partitions[i].is_active() {

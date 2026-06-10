@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
 
-use lib::{sync::{Semaphore, SpinLock}, *};
+use lib::{
+    sync::{Semaphore, SpinLock},
+    *,
+};
 
 extern crate lib;
 
@@ -17,7 +20,7 @@ static mut MQ_COUNT: usize = 0;
 
 static SEM_MUTEX: Semaphore = Semaphore::new(0); // mutual exclusion
 static SEM_EMPTY: Semaphore = Semaphore::new(1); // empty slot count
-static SEM_FULL: Semaphore = Semaphore::new(2);  // filled slot count
+static SEM_FULL: Semaphore = Semaphore::new(2); // filled slot count
 
 static OUTPUT_LOCK: SpinLock = SpinLock::new();
 
@@ -50,7 +53,10 @@ fn main() -> isize {
 
     let cpid = sys_get_pid();
     OUTPUT_LOCK.acquire();
-    println!("Parent #{} created {} processes: {:?}", cpid, THREAD_COUNT, &pids);
+    println!(
+        "Parent #{} created {} processes: {:?}",
+        cpid, THREAD_COUNT, &pids
+    );
     OUTPUT_LOCK.release();
     sys_stat();
 

@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-use lib::*;
 use core::str::FromStr;
+use lib::*;
 
 extern crate lib;
 
@@ -39,7 +39,7 @@ impl FromStr for Command {
             "dinner" => Ok(Command::Dinner),
             "sh" => Ok(Command::Shell),
             _ => Err(()),
-        }        
+        }
     }
 }
 
@@ -64,9 +64,10 @@ fn main() -> isize {
             Ok(Command::Mq) => spawn_and_wait("mq"),
             Ok(Command::Dinner) => spawn_and_wait("dinner"),
             Ok(Command::Shell) => spawn_and_wait("sh"),
-            Err(_) => println!("Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit")
+            Err(_) => println!(
+                "Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit"
+            ),
         }
-        
     }
     0
 }
