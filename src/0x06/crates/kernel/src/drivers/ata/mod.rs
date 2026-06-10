@@ -1,0 +1,123 @@
+//! ATA Drive
+//!
+//! reference: https://wiki.osdev.org/IDE
+//! reference: https://wiki.osdev.org/ATA_PIO_Mode
+//! reference: https://github.com/theseus-os/Theseus/blob/HEAD/kernel/ata/src/lib.rs
+
+mod bus;
+mod consts;
+
+use alloc::{boxed::Box, string::String};
+
+use bus::AtaBus;
+use consts::AtaDeviceType;
+use spin::Mutex;
+
+const ATA_IDENT_SERIAL: usize = 20;
+const ATA_IDENT_MODEL: usize = 54;
+const ATA_IDENT_MAX_LBA: usize = 120;
+
+lazy_static! {
+    pub static ref BUSES: [Mutex<AtaBus>; 2] = {
+        let buses = [
+            Mutex::new(AtaBus::new(0, 14, 0x1F0, 0x3F6)),
+            Mutex::new(AtaBus::new(1, 15, 0x170, 0x376)),
+        ];
+
+        info!("Initialized ATA Buses.");
+
+        buses
+    };
+}
+
+#[derive(Clone)]
+pub struct AtaDrive {
+    pub bus: u8,
+    pub drive: u8,
+    blocks: u32,
+    model: Box<str>,
+    serial: Box<str>,
+}
+
+impl AtaDrive {
+    pub fn open(bus: u8, drive: u8) -> Option<Self> {
+        trace!("Opening drive {}@{}...", bus, drive);
+
+        // we only support PATA drives
+        if let Ok(AtaDeviceType::Pata(res)) = BUSES[bus as usize].lock().identify_drive(drive) {
+            let buf = res.map(u16::to_be_bytes).concat();
+            /* FIXED: get the serial from buf */
+            let serial = Box::from(
+                String::from_utf8_lossy(&buf[ATA_IDENT_SERIAL..ATA_IDENT_SERIAL + 20]).trim(),
+            );
+            /* FIXED: get the model from buf */
+            let model = Box::from(
+                String::from_utf8_lossy(&buf[ATA_IDENT_MODEL..ATA_IDENT_MODEL + 40]).trim(),
+            );
+            /* FIXED: get the block count from buf */
+            let w60 = u16::from_be_bytes(
+                buf[ATA_IDENT_MAX_LBA..ATA_IDENT_MAX_LBA + 2]
+                    .try_into()
+                    .unwrap(),
+            );
+            let w61 = u16::from_be_bytes(
+                buf[ATA_IDENT_MAX_LBA + 2..ATA_IDENT_MAX_LBA + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            let blocks = (w61 as u32) << 16 | (w60 as u32);
+            let ata_drive = Self {
+                bus,
+                drive,
+                model,
+                serial,
+                blocks,
+            };
+            info!("Drive {} opened", ata_drive);
+            Some(ata_drive)
+        } else {
+            warn!("Drive {}@{} is not a PATA drive", bus, drive);
+            None
+        }
+    }
+
+    fn humanized_size(&self) -> (f32, &'static str) {
+        let size = self.block_size();
+        let count = self.block_count().unwrap();
+        let bytes = size * count;
+
+        crate::humanized_size(bytes as u64)
+    }
+}
+
+impl core::fmt::Display for AtaDrive {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let (size, unit) = self.humanized_size();
+        write!(f, "{} {} ({} {})", self.model, self.serial, size, unit)
+    }
+}
+
+use storage::{Block512, BlockDevice};
+
+impl BlockDevice<Block512> for AtaDrive {
+    fn block_count(&self) -> storage::FsResult<usize> {
+        // FIXED: return the block count
+        Ok(self.blocks as usize)
+    }
+
+    fn read_block(&self, offset: usize, block: &mut Block512) -> storage::FsResult {
+        // FIXED: read the block
+        //      - use `BUSES` and `self` to get bus
+        //      - use `read_pio` to get data
+        let mut bus = BUSES[self.bus as usize].lock();
+        bus.read_pio(self.drive, offset as u32, block.as_mut())
+    }
+
+    fn write_block(&self, offset: usize, block: &Block512) -> storage::FsResult {
+        // FIXED: write the block
+        //      - use `BUSES` and `self` to get bus
+        //      - use `write_pio` to write data
+        let mut bus = BUSES[self.bus as usize].lock();
+        bus.write_pio(self.drive, offset as u32, block.as_ref())
+    }
+}
