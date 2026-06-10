@@ -1,6 +1,6 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, format, string::String};
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use storage::{fat16::Fat16, mbr::*, *};
 
 use super::ata::*;
@@ -32,6 +32,11 @@ pub fn init() {
     info!("Initialized Filesystem.");
 }
 
+fn format_time(time: Option<DateTime<Utc>>) -> String {
+    time.map(|time| format!("{}", time.format("%Y-%m-%d %H:%M")))
+        .unwrap_or_else(|| String::from("-"))
+}
+
 pub fn ls(root_path: &str) {
     let iter = match get_rootfs().read_dir(root_path) {
         Ok(iter) => iter,
@@ -41,10 +46,49 @@ pub fn ls(root_path: &str) {
         }
     };
 
-    // FIXME: format and print the file metadata
-    //      - use `for meta in iter` to iterate over the entries
-    //      - use `crate::humanized_size_short` for file size
-    //      - add '/' to the end of directory names
-    //      - format the date as you like
-    //      - do not forget to print the table header
+    println!("{:<8}  {:<16}  {:<16}  {}", "size", "created", "accessed", "name");
+    for meta in iter {
+        let is_dir = meta.is_dir();
+        let name = if is_dir {
+            format!("{}/", meta.name)
+        } else {
+            meta.name
+        };
+        let size = if is_dir {
+            String::from("-")
+        } else {
+            let (size, unit) = crate::humanized_size_short(meta.len as u64);
+            format!("{:.1}{}", size, unit)
+        };
+
+        println!(
+            "{:<8}  {:<16}  {:<16}  {}",
+            size,
+            format_time(meta.created),
+            format_time(meta.accessed),
+            name
+        );
+    }
+}
+
+pub fn cat(path: &str) -> bool {
+    let mut file = match get_rootfs().open_file(path) {
+        Ok(file) => file,
+        Err(err) => {
+            warn!("{:?}", err);
+            return false;
+        }
+    };
+
+    let mut buf = [0u8; 512];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => return true,
+            Ok(n) => print!("{}", String::from_utf8_lossy(&buf[..n])),
+            Err(err) => {
+                warn!("{:?}", err);
+                return false;
+            }
+        }
+    }
 }

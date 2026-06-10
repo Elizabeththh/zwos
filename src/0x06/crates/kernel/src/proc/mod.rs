@@ -324,3 +324,13 @@ pub fn sem_signal(key: u32, context: &mut ProcessContext) {
         }
     })
 }
+
+pub fn list_dir(name: &str) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        crate::filesystem::ls(name);
+    })
+}
+
+pub fn cat_file(name: &str) -> bool {
+    x86_64::instructions::interrupts::without_interrupts(|| crate::filesystem::cat(name))
+}

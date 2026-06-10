@@ -50,6 +50,39 @@ pub fn sys_list_app() {
 }
 
 #[inline(always)]
+pub fn sys_list_dir(path: &str) -> bool {
+    syscall!(Syscall::ListDir, path.as_ptr() as u64, path.len() as u64) == 0
+}
+
+#[inline(always)]
+pub fn sys_cat(path: &str) -> bool {
+    syscall!(Syscall::Cat, path.as_ptr() as u64, path.len() as u64) == 0
+}
+
+pub fn cat(command: &str) -> bool {
+    let mut parts = command.split_whitespace();
+    if parts.next() != Some("cat") {
+        return false;
+    }
+
+    let Some(path) = parts.next() else {
+        crate::println!("usage: cat <path>");
+        return true;
+    };
+
+    if parts.next().is_some() {
+        crate::println!("usage: cat <path>");
+        return true;
+    }
+
+    if !sys_cat(path) {
+        crate::println!("no such file or directory");
+    }
+
+    true
+}
+
+#[inline(always)]
 pub fn sys_get_time() -> usize {
     syscall!(Syscall::Time)
 }

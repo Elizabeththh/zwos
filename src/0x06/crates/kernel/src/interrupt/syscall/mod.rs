@@ -94,6 +94,11 @@ pub fn dispatcher(context: &mut ProcessContext) {
             proc::wait_pid(ProcessId(args.arg0 as u16), context);
         }
 
+        // path: &str (arg0 as *const u8, arg1 as len)
+        Syscall::ListDir => context.set_rax(sys_list_dir(&args)),
+        // path: &str (arg0 as *const u8, arg1 as len)
+        Syscall::Cat => context.set_rax(sys_cat(&args)),
+
         // op: u8, key: u32, val: usize -> ret: any
         Syscall::Sem => sys_sem(&args, context),
 

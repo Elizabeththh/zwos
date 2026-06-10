@@ -18,6 +18,7 @@ enum Command {
     Counter,
     Mq,
     Dinner,
+    Ls,
     Shell,
 }
 
@@ -27,7 +28,7 @@ impl FromStr for Command {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim() {
             "ps" => Ok(Command::Ps),
-            "ls" => Ok(Command::ListApp),
+            "lsapp" => Ok(Command::ListApp),
             "hello" => Ok(Command::Hello),
             "test" => Ok(Command::Test),
             "clear" => Ok(Command::Clear),
@@ -37,6 +38,7 @@ impl FromStr for Command {
             "counter" => Ok(Command::Counter),
             "mq" => Ok(Command::Mq),
             "dinner" => Ok(Command::Dinner),
+            "ls" => Ok(Command::Ls),
             "sh" => Ok(Command::Shell),
             _ => Err(()),
         }
@@ -48,6 +50,12 @@ fn main() -> isize {
     loop {
         print!("> ");
         let command = stdin().read_line();
+        let command = command.trim();
+
+        if cat(command) {
+            continue;
+        }
+
         match command.parse::<Command>() {
             Ok(Command::Ps) => sys_stat(),
             Ok(Command::ListApp) => sys_list_app(),
@@ -63,9 +71,14 @@ fn main() -> isize {
             Ok(Command::Counter) => spawn_and_wait("counter"),
             Ok(Command::Mq) => spawn_and_wait("mq"),
             Ok(Command::Dinner) => spawn_and_wait("dinner"),
+            Ok(Command::Ls) => {
+                if !sys_list_dir("APP") {
+                    println!("no such file or directory");
+                }
+            }
             Ok(Command::Shell) => spawn_and_wait("sh"),
             Err(_) => println!(
-                "Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit"
+                "Unknown command, Please retry\nAvailable command: ps, ls, cat, hello, test, clear, sh, time, exit"
             ),
         }
     }
@@ -75,7 +88,7 @@ fn main() -> isize {
 #[inline(always)]
 fn help() {
     println!("Developed by lvzw, whose student ID is 24353028");
-    println!("Available Command: ps, ls, hello, test, clear, sh, time, exit");
+    println!("Available Command: ps, ls, cat, hello, test, clear, sh, time, exit");
 }
 
 #[inline(always)]

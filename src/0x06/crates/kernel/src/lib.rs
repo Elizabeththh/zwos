@@ -57,7 +57,7 @@ pub fn init(boot_info: &'static BootInfo) {
     info!("Interrupts Enabled.");
 
     info!("YatSenOS initialized.");
-    AtaDrive::open(0, 0).unwrap();
+    filesystem::init();
 }
 
 pub fn wait(init: proc::ProcessId) {

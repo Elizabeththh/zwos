@@ -1,5 +1,4 @@
 use core::alloc::Layout;
-
 use uefi::runtime::get_time;
 
 use super::SyscallArgs;
@@ -130,4 +129,34 @@ pub fn sys_get_time() -> usize {
     let total_seconds = total_days * 86400 + hour * 3600 + minute * 60 + second;
 
     total_seconds * 1_000_000_000 + nanosecond
+}
+
+fn path_arg(args: &SyscallArgs) -> Option<&str> {
+    if args.arg1 > 0 && args.arg0 == 0 {
+        return None;
+    }
+
+    if args.arg1 == 0 {
+        return Some("");
+    }
+
+    let bytes = unsafe { core::slice::from_raw_parts(args.arg0 as *const u8, args.arg1) };
+    core::str::from_utf8(bytes).ok()
+}
+
+pub fn sys_list_dir(args: &SyscallArgs) -> usize {
+    let Some(path) = path_arg(args) else {
+        return usize::MAX;
+    };
+
+    list_dir(path);
+    0
+}
+
+pub fn sys_cat(args: &SyscallArgs) -> usize {
+    let Some(path) = path_arg(args) else {
+        return usize::MAX;
+    };
+
+    if cat_file(path) { 0 } else { usize::MAX }
 }
