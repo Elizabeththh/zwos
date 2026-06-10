@@ -96,13 +96,16 @@ pub fn switch(context: &mut ProcessContext) {
 //     })
 // }
 
-pub fn spawn(name: &str) -> Option<ProcessId> {
-    let app = x86_64::instructions::interrupts::without_interrupts(|| {
-        let app_list = get_process_manager().app_list()?;
-        app_list.iter().find(|&app| app.name.eq(name))
-    })?;
+pub fn spawn(path: &str) -> Option<ProcessId> {
+    let file = crate::filesystem::read_file(path)?;
+    let elf = ElfFile::new(&file).ok()?;
+    let name = path
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or(path)
+        .to_string();
 
-    elf_spawn(name.to_string(), &app.elf)
+    elf_spawn(name, &elf)
 }
 
 pub fn elf_spawn(name: String, elf: &ElfFile) -> Option<ProcessId> {

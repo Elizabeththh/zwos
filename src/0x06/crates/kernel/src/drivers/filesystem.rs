@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, string::String};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use chrono::{DateTime, Utc};
 use storage::{fat16::Fat16, mbr::*, *};
@@ -89,6 +89,25 @@ pub fn cat(path: &str) -> bool {
                 warn!("{:?}", err);
                 return false;
             }
+        }
+    }
+}
+
+pub fn read_file(path: &str) -> Option<Vec<u8>> {
+    let mut file = match get_rootfs().open_file(path) {
+        Ok(file) => file,
+        Err(err) => {
+            warn!("{:?}", err);
+            return None;
+        }
+    };
+
+    let mut buf = Vec::new();
+    match file.read_all(&mut buf) {
+        Ok(_) => Some(buf),
+        Err(err) => {
+            warn!("{:?}", err);
+            None
         }
     }
 }

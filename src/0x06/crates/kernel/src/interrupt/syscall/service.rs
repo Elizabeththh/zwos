@@ -5,23 +5,14 @@ use super::SyscallArgs;
 use crate::proc::*;
 
 pub fn spawn_process(args: &SyscallArgs) -> usize {
-    // FIXED: get app name by args
-    //       - core::str::from_utf8_unchecked
-    //       - core::slice::from_raw_parts
-    // FIXED: spawn the process by name
-    // FIXED: handle spawn error, return 0 if failed
-    // FIXED: return pid as usize
-    unsafe {
-        let name = core::str::from_utf8_unchecked(core::slice::from_raw_parts(
-            args.arg0 as *const u8,
-            args.arg1,
-        ));
+    let Some(path) = path_arg(args) else {
+        return 0;
+    };
 
-        if let Some(pid) = spawn(name) {
-            usize::from(u16::from(pid))
-        } else {
-            0
-        }
+    if let Some(pid) = spawn(path) {
+        usize::from(u16::from(pid))
+    } else {
+        0
     }
 }
 

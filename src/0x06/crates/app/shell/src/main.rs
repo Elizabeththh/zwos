@@ -59,24 +59,24 @@ fn main() -> isize {
         match command.parse::<Command>() {
             Ok(Command::Ps) => sys_stat(),
             Ok(Command::ListApp) => sys_list_app(),
-            Ok(Command::Hello) => spawn_and_wait("hello"),
-            Ok(Command::Test) => spawn_and_wait("test"),
+            Ok(Command::Hello) => spawn_and_wait("APP/hello"),
+            Ok(Command::Test) => spawn_and_wait("APP/test"),
             Ok(Command::Help) => help(),
             Ok(Command::Exit) => {
                 println!("Exit Shell...");
                 break;
             }
             Ok(Command::Clear) => print!("\x1b[2J\x1b[H"),
-            Ok(Command::Time) => spawn_and_wait("time"),
-            Ok(Command::Counter) => spawn_and_wait("counter"),
-            Ok(Command::Mq) => spawn_and_wait("mq"),
-            Ok(Command::Dinner) => spawn_and_wait("dinner"),
+            Ok(Command::Time) => spawn_and_wait("APP/time"),
+            Ok(Command::Counter) => spawn_and_wait("APP/counter"),
+            Ok(Command::Mq) => spawn_and_wait("APP/mq"),
+            Ok(Command::Dinner) => spawn_and_wait("APP/dinner"),
             Ok(Command::Ls) => {
                 if !sys_list_dir("APP") {
                     println!("no such file or directory");
                 }
             }
-            Ok(Command::Shell) => spawn_and_wait("sh"),
+            Ok(Command::Shell) => spawn_and_wait("APP/shell"),
             Err(_) => println!(
                 "Unknown command, Please retry\nAvailable command: ps, ls, cat, hello, test, clear, sh, time, exit"
             ),
@@ -94,6 +94,11 @@ fn help() {
 #[inline(always)]
 fn spawn_and_wait(path: &str) {
     let pid = sys_spawn(path);
+    if pid == 0 {
+        println!("failed to spawn {}", path);
+        return;
+    }
+
     sys_wait_pid(pid);
 }
 

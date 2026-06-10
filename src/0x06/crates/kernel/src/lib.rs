@@ -34,7 +34,7 @@ pub use alloc::format;
 use boot::BootInfo;
 use uefi::{Status, runtime::ResetType};
 
-use crate::{ata::AtaDrive, memory::user};
+use crate::memory::user;
 
 pub fn init(boot_info: &'static BootInfo) {
     unsafe {
