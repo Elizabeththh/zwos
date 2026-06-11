@@ -3,6 +3,8 @@ use uefi::runtime::get_time;
 
 use super::SyscallArgs;
 use crate::proc::*;
+use crate::resource::Resource;
+use storage::FileSystem;
 use x86_64::VirtAddr;
 
 pub fn spawn_process(args: &SyscallArgs) -> usize {
@@ -163,5 +165,47 @@ pub fn sys_brk(args: &SyscallArgs) -> usize {
     match brk(new_heap_end) {
         Some(new_heap_end) => new_heap_end.as_u64() as usize,
         None => !0,
+    }
+}
+
+pub fn sys_open(args: &SyscallArgs) -> usize {
+    let Some(path) = path_arg(args) else {
+        return 0xFF;
+    };
+
+    let file = match crate::filesystem::get_vfs().open_file(path) {
+        Ok(file) => file,
+        Err(_) => return 0xFF,
+    };
+
+    crate::proc::open_resource(Resource::File(file)) as usize
+}
+
+pub fn sys_close(args: &SyscallArgs) -> usize {
+    let fd = args.arg0 as u8;
+    if crate::proc::close_resource(fd) { 0 } else { usize::MAX }
+}
+
+pub fn sys_create_file(args: &SyscallArgs) -> usize {
+    let Some(path) = path_arg(args) else {
+        return 0xFF;
+    };
+
+    let file = match crate::filesystem::get_vfs().create_file(path) {
+        Ok(file) => file,
+        Err(_) => return 0xFF,
+    };
+
+    crate::proc::open_resource(Resource::File(file)) as usize
+}
+
+pub fn sys_create_dir(args: &SyscallArgs) -> usize {
+    let Some(path) = path_arg(args) else {
+        return usize::MAX;
+    };
+
+    match crate::filesystem::get_vfs().create_dir(path) {
+        Ok(()) => 0,
+        Err(_) => usize::MAX,
     }
 }
