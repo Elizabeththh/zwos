@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use syscall_def::Syscall;
 
 use crate::syscall;
@@ -82,6 +83,44 @@ pub fn cat(command: &str) -> bool {
     true
 }
 
+pub fn echo(command: &str) -> bool {
+    let mut parts = command.split_whitespace();
+    if parts.next() != Some("echo") {
+        return false;
+    }
+
+    let rest: Vec<&str> = parts.collect();
+    if rest.is_empty() {
+        crate::println!();
+        return true;
+    }
+
+    let redirect_pos = rest.iter().position(|p| *p == ">");
+    if let Some(pos) = redirect_pos {
+        if pos == 0 || pos == rest.len() - 1 {
+            crate::println!("usage: echo <text> > <path>");
+            return true;
+        }
+
+        let text = rest[..pos].join(" ");
+        let path = rest[pos + 1];
+
+        let fd = sys_create_file(path);
+        if fd == 0xFF {
+            crate::println!("failed to create file: {}", path);
+            return true;
+        }
+
+        let content = text.as_bytes();
+        sys_write(fd, content);
+        sys_close(fd);
+    } else {
+        crate::println!("{}", rest.join(" "));
+    }
+
+    true
+}
+
 #[inline(always)]
 pub fn sys_get_time() -> usize {
     syscall!(Syscall::Time)
@@ -150,4 +189,24 @@ pub fn sys_sem_signal(key: u32) -> bool {
 #[inline(always)]
 pub fn sys_sem_wait(key: u32) -> bool {
     syscall!(Syscall::Sem, 3, key as usize) == 0
+}
+
+#[inline(always)]
+pub fn sys_open(path: &str) -> u8 {
+    syscall!(Syscall::Open, path.as_ptr() as u64, path.len() as u64) as u8
+}
+
+#[inline(always)]
+pub fn sys_close(fd: u8) -> usize {
+    syscall!(Syscall::Close, fd as u64)
+}
+
+#[inline(always)]
+pub fn sys_create_file(path: &str) -> u8 {
+    syscall!(Syscall::CreateFile, path.as_ptr() as u64, path.len() as u64) as u8
+}
+
+#[inline(always)]
+pub fn sys_create_dir(path: &str) -> bool {
+    syscall!(Syscall::CreateDir, path.as_ptr() as u64, path.len() as u64) == 0
 }
