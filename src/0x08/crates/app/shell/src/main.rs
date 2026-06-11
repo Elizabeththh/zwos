@@ -59,24 +59,24 @@ fn main() -> isize {
         match command.parse::<Command>() {
             Ok(Command::Ps) => sys_stat(),
             Ok(Command::ListApp) => sys_list_app(),
-            Ok(Command::Hello) => spawn_and_wait("APP/hello"),
-            Ok(Command::Test) => spawn_and_wait("APP/test"),
+            Ok(Command::Hello) => spawn_and_wait("/boot/APP/hello"),
+            Ok(Command::Test) => spawn_and_wait("/boot/APP/test"),
             Ok(Command::Help) => help(),
             Ok(Command::Exit) => {
                 println!("Exit Shell...");
                 break;
             }
             Ok(Command::Clear) => print!("\x1b[2J\x1b[H"),
-            Ok(Command::Time) => spawn_and_wait("APP/time"),
-            Ok(Command::Counter) => spawn_and_wait("APP/counter"),
-            Ok(Command::Mq) => spawn_and_wait("APP/mq"),
-            Ok(Command::Dinner) => spawn_and_wait("APP/dinner"),
+            Ok(Command::Time) => spawn_and_wait("/boot/APP/time"),
+            Ok(Command::Counter) => spawn_and_wait("/boot/APP/counter"),
+            Ok(Command::Mq) => spawn_and_wait("/boot/APP/mq"),
+            Ok(Command::Dinner) => spawn_and_wait("/boot/APP/dinner"),
             Ok(Command::Ls) => {
-                if !sys_list_dir("APP") {
+                if !sys_list_dir("/boot/APP") {
                     println!("no such file or directory");
                 }
             }
-            Ok(Command::Shell) => spawn_and_wait("APP/shell"),
+            Ok(Command::Shell) => spawn_and_wait("/boot/APP/shell"),
             Err(_) => println!(
                 "Unknown command, Please retry\nAvailable command: ps, ls, cat, hello, test, clear, sh, time, exit"
             ),
