@@ -25,6 +25,7 @@ use vm::ProcessVm;
 use x86_64::{VirtAddr, structures::idt::PageFaultErrorCode};
 
 use crate::proc::{sync::SemaphoreResult, vm::stack::KERNEL_STACK_CONSTS};
+use crate::resource::Resource;
 
 pub const KERNEL_PID: ProcessId = ProcessId(1);
 
@@ -173,6 +174,22 @@ pub fn read(fd: u8, buf: &mut [u8]) -> isize {
 
 pub fn write(fd: u8, buf: &[u8]) -> isize {
     x86_64::instructions::interrupts::without_interrupts(|| get_process_manager().write(fd, buf))
+}
+
+pub fn open_resource(res: Resource) -> u8 {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let proc = get_process_manager().current();
+        let inner = proc.read();
+        inner.resources.write().open(res)
+    })
+}
+
+pub fn close_resource(fd: u8) -> bool {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let proc = get_process_manager().current();
+        let inner = proc.read();
+        inner.resources.write().close(fd)
+    })
 }
 
 pub fn proc_exit_code(pid: ProcessId) -> Option<isize> {
