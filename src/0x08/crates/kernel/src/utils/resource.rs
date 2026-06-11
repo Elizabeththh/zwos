@@ -103,7 +103,7 @@ impl Resource {
                     Some(buf.len())
                 }
             },
-            Resource::File(_) => None,
+            Resource::File(f) => f.write(buf).ok(),
             Resource::Null => Some(buf.len()),
         }
     }
