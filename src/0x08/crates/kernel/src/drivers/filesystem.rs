@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 
 use chrono::{DateTime, Utc};
 use storage::{fat16::Fat16, mbr::*, tmpfs::TmpFs, *};
 
 use super::ata::*;
+use super::cache::{LruCacheManager, wrap_cached, cache_stats};
 use super::ramdisk::RamDisk;
 
 pub struct VirtualFileSystem {
@@ -173,6 +174,11 @@ pub fn init() {
         .expect("Failed to get partitions")
         .remove(0);
 
+    info!("Creating block device cache layer...");
+    let part_arc: Arc<dyn BlockDevice<Block512>> = Arc::new(part);
+    let cached_part = wrap_cached(part_arc, 32);
+    info!("Cache layer: capacity=32 blocks");
+
     info!("Creating RamDisk...");
     let ramdisk = RamDisk::new(RAMDISK_BLOCKS);
     info!(
@@ -190,7 +196,7 @@ pub fn init() {
 
     info!("Mounting filesystems...");
     let mut vfs = VirtualFileSystem::new();
-    vfs.mount(Box::new(Fat16::new(part)), "/boot");
+    vfs.mount(Box::new(Fat16::new(cached_part)), "/boot");
     vfs.mount(Box::new(TmpFs::new(ramdisk)), "/tmp");
 
     info!("Creating /tmp/mydir...");
