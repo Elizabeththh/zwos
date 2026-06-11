@@ -1,8 +1,0 @@
-[package]
-edition.workspace = true
-name              = "yslib"
-version.workspace = true
-
-[dependencies]
-syscall_def = { workspace = true }
-chrono      = { workspace = true, features = ["alloc"] }
