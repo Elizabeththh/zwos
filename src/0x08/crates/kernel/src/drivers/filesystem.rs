@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use storage::{fat16::Fat16, mbr::*, tmpfs::TmpFs, *};
 
 use super::ata::*;
-use super::cache::{LruCacheManager, wrap_cached, cache_stats};
+use super::cache::{wrap_cached, cache_stats};
 use super::ramdisk::RamDisk;
 
 pub struct VirtualFileSystem {
