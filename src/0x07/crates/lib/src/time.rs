@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime, Timelike};
 
 use crate::{println, sys_get_time};
 
@@ -16,7 +16,16 @@ fn nanos_to_datetime(nanoseconds: usize) -> NaiveDateTime {
 
 pub fn print_time(nanoseconds: usize) {
     let dt = nanos_to_datetime(nanoseconds);
-    println!("UTC+8: {}", dt.format("%Y-%m-%d %H:%M:%S%.9f"));
+    println!(
+        "UTC+8: {:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:09}",
+        dt.year(),
+        dt.month(),
+        dt.day(),
+        dt.hour(),
+        dt.minute(),
+        dt.second(),
+        dt.nanosecond()
+    );
 }
 
 pub fn sleep(nanoseconds: usize) {

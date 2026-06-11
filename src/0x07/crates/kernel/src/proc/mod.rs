@@ -38,7 +38,7 @@ pub enum ProgramStatus {
 
 /// init process manager
 pub fn init(boot_info: &'static boot::BootInfo) {
-    let proc_vm = ProcessVm::new(PageTableContext::new()).init_kernel_vm();
+    let proc_vm = ProcessVm::new(PageTableContext::new()).init_kernel_vm(&boot_info.kernel_pages);
     let mut proc_dt = ProcessData::new();
     let kernel_stack_consts = KERNEL_STACK_CONSTS.wait();
 
@@ -61,11 +61,6 @@ pub fn init(boot_info: &'static boot::BootInfo) {
     // kernel process
     // FIXED: create kernel process
     let kproc = { Process::new(String::from("kernel"), None, Some(proc_vm), Some(proc_dt)) };
-
-    kproc
-        .write()
-        .vm_mut()
-        .set_code_pages_usage(boot_info.kernel_pages_usage);
 
     let app_list = boot_info.loaded_apps.as_ref();
     manager::init(kproc, app_list);
@@ -146,6 +141,12 @@ pub fn list_app() {
 pub fn print_process_list() {
     x86_64::instructions::interrupts::without_interrupts(|| {
         get_process_manager().print_process_list();
+    })
+}
+
+pub fn brk(addr: Option<VirtAddr>) -> Option<VirtAddr> {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        get_process_manager().current().read().brk(addr)
     })
 }
 

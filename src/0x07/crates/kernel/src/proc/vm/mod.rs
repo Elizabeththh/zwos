@@ -1,15 +1,21 @@
-use alloc::format;
+use alloc::{format, vec::Vec};
 
-use elf::unmap_range;
+use boot::KernelPages;
 use x86_64::{
     VirtAddr,
-    structures::paging::{mapper::UnmapError, *},
+    structures::paging::{
+        mapper::{CleanUp, UnmapError},
+        page::PageRangeInclusive,
+        *,
+    },
 };
+use xmas_elf::ElfFile;
 
 use crate::{humanized_size, memory::*};
 
+pub mod heap;
 pub mod stack;
-use self::stack::*;
+use self::{heap::*, stack::*};
 use super::{PageTableContext, ProcessId};
 
 type MapperRef<'a> = &'a mut OffsetPageTable<'static>;
@@ -41,28 +47,16 @@ impl ProcessVm {
             code_usage: 0,
         }
     }
-    
-    // See the documentation for the `KernelPages` type
-    // Ignore when you not reach this part
 
     /// Initialize kernel vm
     ///
     /// NOTE: this function should only be called by the first process
-    // pub fn init_kernel_vm(mut self, pages: &KernelPages) -> Self {
-    //     // FIXME: record kernel code usage
-    //     self.code = /* The kernel pages */;
-    //     self.code_usage = /* The kernel code usage */;
-
-    //     self.stack = Stack::kstack();
-
-    //     // ignore heap for kernel process as we don't manage it
-
-    //     self
-    // }
-
-    pub fn init_kernel_vm(mut self) -> Self {
-        // TODO: record kernel code usage
+    pub fn init_kernel_vm(mut self, pages: &KernelPages) -> Self {
+        self.code = pages.iter().cloned().collect();
+        self.code_usage = page_ranges_usage(&self.code);
         self.stack = Stack::kstack();
+
+        // ignore heap for kernel process as we don't manage it
         self
     }
 
@@ -76,26 +70,20 @@ impl ProcessVm {
 
     pub fn load_elf(&mut self, elf: &ElfFile) {
         let mapper = &mut self.page_table.mapper();
-
         let alloc = &mut *get_frame_alloc_for_sure();
 
         self.load_elf_code(elf, mapper, alloc);
-        self.stack.init(mapper, alloc);
     }
 
     fn load_elf_code(&mut self, elf: &ElfFile, mapper: MapperRef, alloc: FrameAllocatorRef) {
-        // FIXME: make the `load_elf` function return the code pages
-        self.code =
-            elf::load_elf(elf, *PHYSICAL_OFFSET.get().unwrap(), mapper, alloc, true).unwrap();
-
-        // FIXME: calculate code usage
-        self.code_usage = /* The code usage */;
+        self.code = elf::load_elf(elf, *PHYSICAL_OFFSET.get().unwrap(), mapper, alloc, true)
+            .expect("Failed to load ELF");
+        self.code_usage = page_ranges_usage(&self.code);
     }
 
     pub fn fork(&self, stack_offset_count: u64) -> Self {
         let owned_page_table = self.page_table.fork();
         let mapper = &mut owned_page_table.mapper();
-
         let alloc = &mut *get_frame_alloc_for_sure();
 
         Self {
@@ -110,7 +98,6 @@ impl ProcessVm {
     }
 
     pub fn init_proc_stack(&mut self, pid: ProcessId) -> VirtAddr {
-        // FIXED: calculate the stack for pid
         let consts = STACK_CONSTS.wait();
 
         // PID 1 for kernel process, new processes start at PID 2
@@ -145,45 +132,49 @@ impl ProcessVm {
     }
 
     pub(super) fn memory_usage(&self) -> u64 {
-        (self.code_pages_usage + self.stack.usage) * PAGE_SIZE
-    }
-
-    pub(super) fn memory_usage(&self) -> u64 {
         self.stack.memory_usage() + self.heap.memory_usage() + self.code_usage
     }
 
     pub(super) fn clean_up(&mut self) -> Result<(), UnmapError> {
         let mapper = &mut self.page_table.mapper();
         let dealloc = &mut *get_frame_alloc_for_sure();
+        let start_count = dealloc.frames_recycled();
 
-        // FIXME: implement the `clean_up` function for `Stack`
         self.stack.clean_up(mapper, dealloc)?;
 
         if self.page_table.using_count() == 1 {
-            // free heap
-            // FIXME: implement the `clean_up` function for `Heap`
             self.heap.clean_up(mapper, dealloc)?;
 
-            // free code
-            for page_range in self.code.iter() {
-                elf::unmap_range(*page_range, mapper, dealloc, true)?;
+            for page_range in self.code.drain(..) {
+                elf::unmap_pages(page_range, mapper, dealloc)?;
             }
+            self.code_usage = 0;
 
             unsafe {
-                // free P1-P3
                 mapper.clean_up(dealloc);
-
-                // free P4
                 dealloc.deallocate_frame(self.page_table.reg.addr);
             }
         }
 
-        // NOTE: maybe print how many frames are recycled
-        //       **you may need to add some functions to `BootInfoFrameAllocator`**
+        let end_count = dealloc.frames_recycled();
+        debug!(
+            "Recycled {}({:.3} MiB) frames, {}({:.3} MiB) frames in total.",
+            end_count - start_count,
+            ((end_count - start_count) * 4) as f32 / 1024.0,
+            end_count,
+            (end_count * 4) as f32 / 1024.0
+        );
 
         Ok(())
     }
+}
 
+impl Drop for ProcessVm {
+    fn drop(&mut self) {
+        if let Err(err) = self.clean_up() {
+            error!("Failed to clean up process memory: {:?}", err);
+        }
+    }
 }
 
 impl core::fmt::Debug for ProcessVm {
@@ -192,9 +183,18 @@ impl core::fmt::Debug for ProcessVm {
 
         f.debug_struct("ProcessVm")
             .field("stack", &self.stack)
-            .field("code_pages", &self.code_pages_usage)
+            .field("heap", &self.heap)
+            .field("code_pages", &self.code.len())
+            .field("code_usage", &self.code_usage)
             .field("memory_usage", &format!("{} {}", size, unit))
             .field("page_table", &self.page_table)
             .finish()
     }
+}
+
+fn page_ranges_usage(pages: &[PageRangeInclusive]) -> u64 {
+    pages
+        .iter()
+        .map(|range| range.len() as u64 * PAGE_SIZE)
+        .sum()
 }

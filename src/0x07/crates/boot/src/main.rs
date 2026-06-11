@@ -78,19 +78,29 @@ fn efi_main() -> Status {
     );
 
     // load and map the kernel elf file
-    let usage = load_elf(
+    let kernel_pages: KernelPages = load_elf(
         &elf,
         config.physical_memory_offset,
         &mut page_table,
         &mut UEFIFrameAllocator,
         false,
     )
-    .expect("Failed to load ELF");
+    .expect("Failed to load ELF")
+    .into_iter()
+    .collect();
+
+    let (stack_start, stack_size) = if config.kernel_stack_auto_grow > 0 {
+        let init_size = config.kernel_stack_auto_grow;
+        let bottom_offset = (config.kernel_stack_size - init_size) * 0x1000;
+        (config.kernel_stack_addr + bottom_offset, init_size)
+    } else {
+        (config.kernel_stack_addr, config.kernel_stack_size)
+    };
 
     // map kernel stack
     elf::map_range(
-        config.kernel_stack_addr,
-        config.kernel_stack_size,
+        stack_start,
+        stack_size,
         &mut page_table,
         &mut UEFIFrameAllocator,
         false,
@@ -118,18 +128,18 @@ fn efi_main() -> Status {
         memory_map: mmap.entries().copied().collect(),
         physical_memory_offset: config.physical_memory_offset,
         kernel_stack_max_addr: config.kernel_stack_max,
-        kernel_default_page: config.kernel_default_page,
+        kernel_default_page: stack_size,
         stack_max_addr: config.stack_max_addr,
         stack_max_pages: config.stack_max_pages,
         stack_default_page: config.stack_default_page,
         system_table,
         log_level: kernel_log_level,
         loaded_apps: apps,
-        kernel_pages_usage: usage,
+        kernel_pages,
     };
 
     // align stack to 8 bytes
-    let stacktop = config.kernel_stack_addr + config.kernel_stack_size * 0x1000 - 8;
+    let stacktop = stack_start + stack_size * 0x1000 - 8;
 
     jump_to_entry(&bootinfo, stacktop);
 }

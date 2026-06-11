@@ -74,6 +74,8 @@ pub fn dispatcher(context: &mut ProcessContext) {
             )))
         }
 
+        Syscall::Brk => context.set_rax(sys_brk(&args)),
+
         Syscall::Fork => {
             fork(context);
         }

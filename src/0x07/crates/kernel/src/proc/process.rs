@@ -4,12 +4,10 @@ use alloc::{
     vec::Vec,
 };
 
-use spin::*;
-use x86_64::structures::paging::mapper::UnmapError;
-
 use super::*;
 use crate::humanized_size;
 use crate::proc::{self, ProgramStatus::Ready, sync::SemaphoreResult, vm::stack::STACK_CONSTS};
+use spin::*;
 
 pub struct Process {
     pid: ProcessId,
@@ -179,6 +177,10 @@ impl ProcessInner {
         self.vm_mut().handle_page_fault(addr)
     }
 
+    pub fn brk(&self, addr: Option<VirtAddr>) -> Option<VirtAddr> {
+        self.vm().brk(addr)
+    }
+
     /// Save the process's context
     pub(super) fn save(&mut self, context: &ProcessContext) {
         // FIXED: save the process's context
@@ -196,11 +198,6 @@ impl ProcessInner {
         self.resume();
     }
 
-    fn dealloc_stack_page(&mut self) -> Result<(), UnmapError> {
-        self.vm_mut().dealloc_proc_stack()?;
-        Ok(())
-    }
-
     pub fn parent(&self) -> Option<Arc<Process>> {
         self.parent.as_ref().and_then(|p| p.upgrade())
     }
@@ -211,13 +208,7 @@ impl ProcessInner {
         // FIXED: set status to dead
         self.status = proc::ProgramStatus::Dead;
 
-        // TODO dealloc page table stack and code segment
-        if let Err(_) = self.dealloc_stack_page() {
-            println!(
-                "Unmap stack pages failed when killing process#{}",
-                self.name
-            );
-        } // FIXED: take and drop unused resources
+        // consume the options and drop unused resources
         self.proc_data.take();
         self.proc_vm.take();
     }
@@ -356,13 +347,13 @@ impl core::fmt::Display for Process {
             .unwrap_or_default();
         write!(
             f,
-            " #{:-3} | #{:-3} | {:12} | {:7} | {:?} | {}",
+            " #{:-3} | #{:-3} | {:12} | {:7} | {:>9} | {:?}",
             self.pid.0,
             inner.parent().map(|p| p.pid.0).unwrap_or(0),
             inner.name,
             inner.ticks_passed,
-            inner.status,
-            mem_str
+            mem_str,
+            inner.status
         )?;
         Ok(())
     }

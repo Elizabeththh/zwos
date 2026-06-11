@@ -45,32 +45,30 @@ impl BootInfoFrameAllocator {
     pub fn frames_total(&self) -> usize {
         self.size
     }
+
+    pub fn frames_recycled(&self) -> usize {
+        self.deallocated_frames.len()
+    }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        if !self.deallocated_frames.is_empty() {
-            let ret = self.deallocated_frames.pop();
-            self.used += 1;
-            ret
+        if let Some(frame) = self.deallocated_frames.pop() {
+            Some(frame)
         } else {
-            let ret = self.frames.next();
+            let frame = self.frames.next()?;
             self.used += 1;
-            ret
+            Some(frame)
         }
     }
 }
 
 impl FrameDeallocator<Size4KiB> for BootInfoFrameAllocator {
-    unsafe fn deallocate_frame(&mut self, _frame: PhysFrame) {
-        // DONE: deallocate frame
-        if self.deallocated_frames.contains(&_frame) {
+    unsafe fn deallocate_frame(&mut self, frame: PhysFrame) {
+        if self.deallocated_frames.contains(&frame) {
             return;
         }
-        self.deallocated_frames.push(_frame);
-        if self.used > 0 {
-            self.used -= 1;
-        }
+        self.deallocated_frames.push(frame);
     }
 }
 

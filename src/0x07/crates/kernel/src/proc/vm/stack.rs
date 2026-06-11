@@ -3,7 +3,11 @@ use core::ptr::copy_nonoverlapping;
 use boot::BootInfo;
 use x86_64::{
     VirtAddr,
-    structures::paging::{Mapper, Page, mapper::MapToError, page::*},
+    structures::paging::{
+        Mapper, Page,
+        mapper::{MapToError, UnmapError},
+        page::*,
+    },
 };
 
 use super::{FrameAllocatorRef, MapperRef};
@@ -124,7 +128,7 @@ impl Stack {
         Self {
             range: Page::range(
                 KERNEL_STACK_CONSTS.wait().kstack_init_page,
-                KERNEL_STACK_CONSTS.wait().kstack_init_top_page,
+                KERNEL_STACK_CONSTS.wait().kstack_init_top_page + 1,
             ),
             usage: KERNEL_STACK_CONSTS.wait().kstack_def_page,
         }
@@ -162,13 +166,25 @@ impl Stack {
         true
     }
 
+    fn is_kernel_stack(&self) -> bool {
+        let consts = KERNEL_STACK_CONSTS.wait();
+        let cur_stack_bot = self.range.start.start_address().as_u64();
+        cur_stack_bot >= consts.kstack_def_bot && cur_stack_bot < consts.kstack_max_addr
+    }
+
     pub fn is_on_stack(&self, addr: VirtAddr) -> bool {
         let addr = addr.as_u64();
         let cur_stack_bot = self.range.start.start_address().as_u64();
         trace!("Current stack bot: {:#x}", cur_stack_bot);
         trace!("Address to access: {:#x}", addr);
-        addr & STACK_CONSTS.wait().stack_start_mask
-            == cur_stack_bot & STACK_CONSTS.wait().stack_start_mask
+
+        if self.is_kernel_stack() {
+            let consts = KERNEL_STACK_CONSTS.wait();
+            addr >= consts.kstack_def_bot && addr < consts.kstack_max_addr
+        } else {
+            addr & STACK_CONSTS.wait().stack_start_mask
+                == cur_stack_bot & STACK_CONSTS.wait().stack_start_mask
+        }
     }
 
     fn grow_stack(
@@ -179,11 +195,9 @@ impl Stack {
     ) -> Result<(), MapToError<Size4KiB>> {
         debug_assert!(self.is_on_stack(addr), "Address is not on stack.");
 
-        // FIXED: grow stack for page fault
         let fault_page = Page::<Size4KiB>::containing_address(addr);
         let cur_range = self.range;
 
-        // Page range is left inclusive, right exclusive. This should be greater than instead of greater or equal to.
         if fault_page >= cur_range.start {
             return Err(MapToError::PageAlreadyMapped(
                 mapper
@@ -194,10 +208,20 @@ impl Stack {
 
         let new_page_count = cur_range.start - fault_page;
         let new_usage = self.usage + new_page_count;
+        let is_kernel_stack = self.is_kernel_stack();
+        let max_pages = if is_kernel_stack {
+            let consts = KERNEL_STACK_CONSTS.wait();
+            (consts.kstack_max_addr - consts.kstack_def_bot) / PAGE_SIZE
+        } else {
+            STACK_CONSTS.wait().stack_max_pages
+        };
 
-        let consts = STACK_CONSTS.wait();
-        if new_usage > consts.stack_max_pages {
+        if new_usage > max_pages {
             return Err(MapToError::FrameAllocationFailed);
+        }
+
+        if is_kernel_stack {
+            info!("Page fault on kernel at {:#x}", addr.as_u64());
         }
 
         elf::map_range(
@@ -205,11 +229,32 @@ impl Stack {
             new_page_count,
             mapper,
             alloc,
-            true,
+            !is_kernel_stack,
         )?;
 
         self.range = Page::range(fault_page, cur_range.end);
         self.usage = new_usage;
+
+        Ok(())
+    }
+
+    pub fn clean_up(
+        &mut self,
+        mapper: MapperRef,
+        dealloc: FrameAllocatorRef,
+    ) -> Result<(), UnmapError> {
+        if self.usage == 0 {
+            warn!("Stack is empty, no need to clean up.");
+            return Ok(());
+        }
+
+        elf::unmap_pages(
+            Page::range_inclusive(self.range.start, self.range.end - 1),
+            mapper,
+            dealloc,
+        )?;
+        self.range = Page::range(self.range.end, self.range.end);
+        self.usage = 0;
 
         Ok(())
     }

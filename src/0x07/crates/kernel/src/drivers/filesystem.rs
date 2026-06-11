@@ -46,7 +46,10 @@ pub fn ls(root_path: &str) {
         }
     };
 
-    println!("{:<8}  {:<16}  {:<16}  {}", "size", "created", "accessed", "name");
+    println!(
+        "{:<8}  {:<16}  {:<16}  {}",
+        "size", "created", "accessed", "name"
+    );
     for meta in iter {
         let is_dir = meta.is_dir();
         let name = if is_dir {

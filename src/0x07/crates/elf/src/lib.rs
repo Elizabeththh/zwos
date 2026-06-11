@@ -2,12 +2,14 @@
 
 #[macro_use]
 extern crate log;
+extern crate alloc;
 
+use alloc::vec::Vec;
 use core::ptr::{copy_nonoverlapping, write_bytes};
 
 use x86_64::{
     PhysAddr, VirtAddr, align_up,
-    structures::paging::{mapper::*, page::PageRange, *},
+    structures::paging::{mapper::*, page::*, *},
 };
 use xmas_elf::{ElfFile, program};
 
@@ -92,14 +94,11 @@ pub fn unmap_range(
 ) -> Result<PageRange, UnmapError> {
     let range_start = Page::containing_address(VirtAddr::new(addr));
     let range_end = range_start + count;
+    let range = Page::range(range_start, range_end);
 
-    trace!(
-        "Page Range: {:?}({})",
-        Page::range(range_start, range_end),
-        count
-    );
+    trace!("Page Range: {:?}({})", range, count);
 
-    for page in Page::range(range_start, range_end) {
+    for page in range {
         let (frame, flush) = page_table.unmap(page)?;
         flush.ignore();
         unsafe {
@@ -111,6 +110,25 @@ pub fn unmap_range(
     Ok(Page::range(range_start, range_end))
 }
 
+pub fn unmap_pages(
+    range: PageRangeInclusive,
+    page_table: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameDeallocator<Size4KiB>,
+) -> Result<(), UnmapError> {
+    trace!("Page Range: {:?}({})", range, range.len());
+
+    for page in range {
+        let (frame, flush) = page_table.unmap(page)?;
+        flush.ignore();
+        unsafe {
+            frame_allocator.deallocate_frame(frame);
+        }
+    }
+    x86_64::instructions::tlb::flush_all();
+
+    Ok(())
+}
+
 /// Load & Map ELF file
 ///
 /// load segments in ELF file to new frames and set page table
@@ -120,26 +138,22 @@ pub fn load_elf(
     page_table: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     user_access: bool,
-) -> Result<u64, MapToError<Size4KiB>> {
+) -> Result<Vec<PageRangeInclusive>, MapToError<Size4KiB>> {
     trace!("Loading ELF file...{:?}", elf.input.as_ptr());
 
-    let mut pages_counter = 0;
-    for segment in elf.program_iter() {
-        if segment.get_type().unwrap() != program::Type::Load {
-            continue;
-        }
-
-        pages_counter += load_segment(
-            elf,
-            physical_offset,
-            &segment,
-            page_table,
-            frame_allocator,
-            user_access,
-        )?;
-    }
-
-    Ok(pages_counter)
+    elf.program_iter()
+        .filter(|segment| segment.get_type() == Ok(program::Type::Load))
+        .map(|segment| {
+            load_segment(
+                elf,
+                physical_offset,
+                &segment,
+                page_table,
+                frame_allocator,
+                user_access,
+            )
+        })
+        .collect()
 }
 
 /// Load & Map ELF segment
@@ -152,7 +166,7 @@ fn load_segment(
     page_table: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     user_access: bool,
-) -> Result<u64, MapToError<Size4KiB>> {
+) -> Result<PageRangeInclusive, MapToError<Size4KiB>> {
     trace!("Loading & mapping segment: {:#x?}", segment);
 
     let mem_size = segment.mem_size();
@@ -160,7 +174,8 @@ fn load_segment(
     let file_offset = segment.offset() & !0xfff;
     let virt_start_addr = VirtAddr::new(segment.virtual_addr());
 
-    let mut pages_counter = 0;
+    let loaded_start_page = Page::containing_address(virt_start_addr);
+    let loaded_end_page = Page::containing_address(virt_start_addr + mem_size - 1u64);
 
     let mut page_table_flags = PageTableFlags::PRESENT;
     if user_access {
@@ -181,47 +196,47 @@ fn load_segment(
 
     trace!("Segment page table flag: {:?}", page_table_flags);
 
-    let start_page = Page::containing_address(virt_start_addr);
-    let end_page = Page::containing_address(virt_start_addr + file_size - 1u64);
-    let pages = Page::range_inclusive(start_page, end_page);
-    pages_counter += pages.len();
+    if file_size > 0 {
+        let start_page = Page::containing_address(virt_start_addr);
+        let end_page = Page::containing_address(virt_start_addr + file_size - 1u64);
+        let pages = Page::range_inclusive(start_page, end_page);
 
-    let data = unsafe { elf.input.as_ptr().add(file_offset as usize) };
+        let data = unsafe { elf.input.as_ptr().add(file_offset as usize) };
 
-    for (idx, page) in pages.enumerate() {
-        let frame = frame_allocator
-            .allocate_frame()
-            .ok_or(MapToError::FrameAllocationFailed)?;
+        for (idx, page) in pages.enumerate() {
+            let frame = frame_allocator
+                .allocate_frame()
+                .ok_or(MapToError::FrameAllocationFailed)?;
 
-        let offset = idx as u64 * page.size();
-        let count = if file_size - offset < page.size() {
-            file_size - offset
-        } else {
-            page.size()
-        };
+            let offset = idx as u64 * page.size();
+            let count = if file_size - offset < page.size() {
+                file_size - offset
+            } else {
+                page.size()
+            };
 
-        unsafe {
-            copy_nonoverlapping(
-                data.add(idx * page.size() as usize),
-                (frame.start_address().as_u64() + physical_offset) as *mut u8,
-                count as usize,
-            );
-
-            page_table
-                .map_to(page, frame, page_table_flags, frame_allocator)?
-                .flush();
-
-            if count < page.size() {
-                // zero the rest of the page
-                trace!(
-                    "Zeroing rest of the page: {:#x}",
-                    page.start_address().as_u64()
+            unsafe {
+                copy_nonoverlapping(
+                    data.add(idx * page.size() as usize),
+                    (frame.start_address().as_u64() + physical_offset) as *mut u8,
+                    count as usize,
                 );
-                write_bytes(
-                    (frame.start_address().as_u64() + physical_offset + count) as *mut u8,
-                    0,
-                    (page.size() - count) as usize,
-                );
+
+                page_table
+                    .map_to(page, frame, page_table_flags, frame_allocator)?
+                    .flush();
+
+                if count < page.size() {
+                    trace!(
+                        "Zeroing rest of the page: {:#x}",
+                        page.start_address().as_u64()
+                    );
+                    write_bytes(
+                        (frame.start_address().as_u64() + physical_offset + count) as *mut u8,
+                        0,
+                        (page.size() - count) as usize,
+                    );
+                }
             }
         }
     }
@@ -233,30 +248,30 @@ fn load_segment(
 
         // Map additional frames.
         let start_address = VirtAddr::new(align_up(zero_start.as_u64(), Size4KiB::SIZE));
-        let start_page: Page = Page::containing_address(start_address);
-        let end_page = Page::containing_address(zero_end);
-        let pages = Page::range_inclusive(start_page, end_page);
-        pages_counter += pages.len();
+        if start_address < zero_end {
+            let start_page: Page = Page::containing_address(start_address);
+            let end_page = Page::containing_address(zero_end - 1u64);
+            let pages = Page::range_inclusive(start_page, end_page);
 
-        for page in pages {
-            let frame = frame_allocator
-                .allocate_frame()
-                .ok_or(MapToError::FrameAllocationFailed)?;
+            for page in pages {
+                let frame = frame_allocator
+                    .allocate_frame()
+                    .ok_or(MapToError::FrameAllocationFailed)?;
 
-            unsafe {
-                page_table
-                    .map_to(page, frame, page_table_flags, frame_allocator)?
-                    .flush();
+                unsafe {
+                    page_table
+                        .map_to(page, frame, page_table_flags, frame_allocator)?
+                        .flush();
 
-                // zero bss section
-                write_bytes(
-                    (frame.start_address().as_u64() + physical_offset) as *mut u8,
-                    0,
-                    page.size() as usize,
-                );
+                    write_bytes(
+                        (frame.start_address().as_u64() + physical_offset) as *mut u8,
+                        0,
+                        page.size() as usize,
+                    );
+                }
             }
         }
     }
 
-    Ok(pages_counter)
+    Ok(Page::range_inclusive(loaded_start_page, loaded_end_page))
 }

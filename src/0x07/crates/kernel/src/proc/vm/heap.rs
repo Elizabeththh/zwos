@@ -1,12 +1,10 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use x86_64::{
-    VirtAddr,
-    structures::paging::{Page, mapper::UnmapError},
-};
+use x86_64::{VirtAddr, structures::paging::mapper::UnmapError};
 
 use super::{FrameAllocatorRef, MapperRef};
+use crate::memory::PAGE_SIZE;
 
 // user process runtime heap
 // 0x100000000 bytes -> 4GiB
@@ -52,19 +50,38 @@ impl Heap {
         mapper: MapperRef,
         alloc: FrameAllocatorRef,
     ) -> Option<VirtAddr> {
-        // FIXME: if new_end is None, return the current end address
+        let current_end = self.end.load(Ordering::SeqCst);
+        let Some(new_end) = new_end else {
+            return Some(VirtAddr::new(current_end));
+        };
 
-        // FIXME: check if the new_end is valid (in range [base, base + HEAP_SIZE])
+        let base = self.base.as_u64();
+        let requested_end = new_end.as_u64();
+        if !(base..=HEAP_END).contains(&requested_end) {
+            return None;
+        }
 
-        // FIXME: calculate the difference between the current end and the new end
+        let current_aligned = align_up(current_end);
+        let requested_aligned = align_up(requested_end);
 
-        // NOTE: print the heap difference for debugging
+        if requested_aligned > current_aligned {
+            let pages = (requested_aligned - current_aligned) / PAGE_SIZE;
+            debug!(
+                "Grow heap: {:#x} -> {:#x} ({} pages)",
+                current_end, requested_end, pages
+            );
+            elf::map_range(current_aligned, pages, mapper, alloc, true).ok()?;
+        } else if requested_aligned < current_aligned {
+            let pages = (current_aligned - requested_aligned) / PAGE_SIZE;
+            debug!(
+                "Shrink heap: {:#x} -> {:#x} ({} pages)",
+                current_end, requested_end, pages
+            );
+            elf::unmap_range(requested_aligned, pages, mapper, alloc).ok()?;
+        }
 
-        // FIXME: do the actual mapping or unmapping
-
-        // FIXME: update the end address
-
-        new_end
+        self.end.store(requested_end, Ordering::SeqCst);
+        Some(new_end)
     }
 
     pub(super) fn clean_up(
@@ -72,13 +89,16 @@ impl Heap {
         mapper: MapperRef,
         dealloc: FrameAllocatorRef,
     ) -> Result<(), UnmapError> {
-        if self.memory_usage() == 0 {
+        let base = self.base.as_u64();
+        let end = self.end.swap(base, Ordering::SeqCst);
+        let aligned_end = align_up(end);
+
+        if aligned_end == base {
             return Ok(());
         }
 
-        // FIXME: load the current end address and **reset it to base** (use `swap`)
-
-        // FIXME: unmap the heap pages
+        let pages = (aligned_end - base) / PAGE_SIZE;
+        elf::unmap_range(base, pages, mapper, dealloc)?;
 
         Ok(())
     }
@@ -98,4 +118,8 @@ impl core::fmt::Debug for Heap {
             )
             .finish()
     }
+}
+
+fn align_up(addr: u64) -> u64 {
+    (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }

@@ -73,7 +73,13 @@ impl PageTableContext {
     }
 
     pub fn fork(&self) -> PageTableContext {
-        self.clone_level_4()
+        Self {
+            reg: self.reg.clone(),
+        }
+    }
+
+    pub fn using_count(&self) -> usize {
+        Arc::strong_count(&self.reg)
     }
 }
 

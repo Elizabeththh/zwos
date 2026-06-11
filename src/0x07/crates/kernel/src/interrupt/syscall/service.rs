@@ -3,6 +3,7 @@ use uefi::runtime::get_time;
 
 use super::SyscallArgs;
 use crate::proc::*;
+use x86_64::VirtAddr;
 
 pub fn spawn_process(args: &SyscallArgs) -> usize {
     let Some(path) = path_arg(args) else {
@@ -150,4 +151,17 @@ pub fn sys_cat(args: &SyscallArgs) -> usize {
     };
 
     if cat_file(path) { 0 } else { usize::MAX }
+}
+
+pub fn sys_brk(args: &SyscallArgs) -> usize {
+    let new_heap_end = if args.arg0 == 0 {
+        None
+    } else {
+        Some(VirtAddr::new(args.arg0 as u64))
+    };
+
+    match brk(new_heap_end) {
+        Some(new_heap_end) => new_heap_end.as_u64() as usize,
+        None => !0,
+    }
 }

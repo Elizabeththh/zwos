@@ -12,7 +12,7 @@ pub use uefi::{
 use x86_64::{
     VirtAddr,
     registers::control::Cr3,
-    structures::paging::{OffsetPageTable, PageTable},
+    structures::paging::{OffsetPageTable, PageTable, page::PageRangeInclusive},
 };
 
 pub mod allocator;
@@ -27,6 +27,7 @@ use xmas_elf::ElfFile;
 extern crate log;
 
 pub type BootMemoryMap = ArrayVec<MemoryDescriptor, 256>;
+pub type KernelPages = ArrayVec<PageRangeInclusive, 8>;
 
 /// This structure represents the information that the bootloader passes to the
 /// kernel.
@@ -59,8 +60,8 @@ pub struct BootInfo {
     // kernel log level
     pub log_level: &'static str,
 
-    // kernel pages usage
-    pub kernel_pages_usage: u64,
+    // Kernel pages
+    pub kernel_pages: KernelPages,
 
     pub loaded_apps: Option<AppList>,
 }

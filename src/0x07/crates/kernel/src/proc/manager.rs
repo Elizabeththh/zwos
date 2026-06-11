@@ -5,12 +5,11 @@ use alloc::{
 };
 
 use boot::AppListRef;
-use elf::load_elf;
 use hashbrown::HashMap;
 use spin::{Mutex, RwLock};
 use xmas_elf::ElfFile;
 
-use crate::memory::{PHYSICAL_OFFSET, get_frame_alloc_for_sure};
+use crate::memory::{PAGE_SIZE, get_frame_alloc_for_sure};
 
 use super::*;
 
@@ -175,14 +174,7 @@ impl ProcessManager {
 
         let mut inner = proc.write();
         // FIXED: load elf to process pagetable
-        let physical_offset = *PHYSICAL_OFFSET.get().unwrap();
-        {
-            let frame_alloc = &mut *get_frame_alloc_for_sure();
-            let mut mapper = inner.vm_mut().page_table.mapper();
-            let code_pages = load_elf(elf, physical_offset, &mut mapper, frame_alloc, true)
-                .expect("Failed to load ELF");
-            inner.vm_mut().set_code_pages_usage(code_pages);
-        }
+        inner.vm_mut().load_elf(elf);
         // FIXED: alloc new stack for process
         let stack_top = inner.vm_mut().init_proc_stack(proc.pid());
         let entry = VirtAddr::new(elf.header.pt2.entry_point());
@@ -273,7 +265,8 @@ impl ProcessManager {
     }
 
     pub fn print_process_list(&self) {
-        let mut output = String::from("  PID | PPID | Process Name |  Ticks  | Status | Memory\n");
+        let mut output =
+            String::from("  PID | PPID | Process Name |  Ticks  |   Memory  | Status\n");
 
         self.processes
             .read()
@@ -281,7 +274,14 @@ impl ProcessManager {
             .filter(|p| p.read().status() != ProgramStatus::Dead)
             .for_each(|p| output += format!("{}\n", p).as_str());
 
-        // TODO: print memory usage of kernel heap
+        let alloc = get_frame_alloc_for_sure();
+        let frames_used = alloc.frames_used();
+        let frames_recycled = alloc.frames_recycled();
+        let frames_total = alloc.frames_total();
+        let used = frames_used.saturating_sub(frames_recycled) * PAGE_SIZE as usize;
+        let total = frames_total * PAGE_SIZE as usize;
+        output += &format_usage("Memory", used, total);
+        drop(alloc);
 
         output += format!("Queue  : {:?}\n", self.ready_queue.lock()).as_str();
 
@@ -301,4 +301,19 @@ impl ProcessManager {
         // FOR DBG: maybe print the process ready queue?
         child_proc.pid()
     }
+}
+
+fn format_usage(name: &str, used: usize, total: usize) -> String {
+    let (used_float, used_unit) = crate::humanized_size(used as u64);
+    let (total_float, total_unit) = crate::humanized_size(total as u64);
+    let percent = if total == 0 {
+        0.0
+    } else {
+        used as f32 / total as f32 * 100.0
+    };
+
+    format!(
+        "{:<6} : {:>6.*} {:>3} / {:>6.*} {:>3} ({:>5.2}%)\n",
+        name, 2, used_float, used_unit, 2, total_float, total_unit, percent
+    )
 }
