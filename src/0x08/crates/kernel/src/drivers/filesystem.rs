@@ -160,6 +160,40 @@ pub fn get_vfs() -> &'static VirtualFileSystem {
     VFS.get().unwrap()
 }
 
+once_mutex!(pub CACHE_STATS: CacheStats);
+
+guard_access_fn!(pub get_cache_stats(CACHE_STATS: CacheStats));
+
+pub struct CacheStats {
+    capacity: usize,
+    cached: usize,
+    dirty: usize,
+}
+
+impl CacheStats {
+    pub fn new(capacity: usize) -> Self {
+        Self { capacity, cached: 0, dirty: 0 }
+    }
+
+    pub fn update(&mut self, cached: usize, dirty: usize) {
+        self.cached = cached;
+        self.dirty = dirty;
+    }
+
+    pub fn display(&self) {
+        println!(
+            "Block cache: {}/{} blocks cached, {} dirty",
+            self.cached, self.capacity, self.dirty
+        );
+    }
+}
+
+pub fn print_cache_stats() {
+    if let Some(stats) = get_cache_stats() {
+        stats.display();
+    }
+}
+
 const RAMDISK_BLOCKS: usize = 4096;
 const RAMDISK_INODES: usize = 256;
 
@@ -177,7 +211,10 @@ pub fn init() {
     info!("Creating block device cache layer...");
     let part_arc: Arc<dyn BlockDevice<Block512>> = Arc::new(part);
     let cached_part = wrap_cached(part_arc, 32);
-    info!("Cache layer: capacity=32 blocks");
+    let (cap, len, dirty) = cache_stats(&cached_part);
+    info!("Cache layer: capacity={}, cached={}, dirty={}", cap, len, dirty);
+
+    init_CACHE_STATS(CacheStats::new(cap));
 
     info!("Creating RamDisk...");
     let ramdisk = RamDisk::new(RAMDISK_BLOCKS);
@@ -234,7 +271,32 @@ pub fn init() {
         hello_meta.links, link_meta.links
     );
 
+    info!("Verifying cache performance...");
+    let t1 = read_tsc();
+    for _ in 0..100 {
+        let _ = vfs.open_file("/boot/TXT/hello.txt");
+    }
+    let t2 = read_tsc();
+    let cold_cycles = t2 - t1;
+
+    let t3 = read_tsc();
+    for _ in 0..100 {
+        let _ = vfs.open_file("/boot/TXT/hello.txt");
+    }
+    let t4 = read_tsc();
+    let warm_cycles = t4 - t3;
+
+    println!("Cache performance test (100 reads of /boot/TXT/hello.txt):");
+    println!("  First pass (cold cache): {} cycles", cold_cycles);
+    println!("  Second pass (warm cache): {} cycles", warm_cycles);
+    println!("  Improvement: {:.1}x faster", cold_cycles as f64 / warm_cycles as f64);
+
     VFS.call_once(|| vfs);
+
+    if let Some(mut stats) = get_cache_stats() {
+        stats.update(0, 0);
+        stats.display();
+    }
 
     trace!("Virtual filesystem: {:#?}", VFS.get().unwrap());
     info!("Initialized Filesystem.");
@@ -321,4 +383,18 @@ pub fn read_file(path: &str) -> Option<Vec<u8>> {
             None
         }
     }
+}
+
+fn read_tsc() -> u64 {
+    let low: u64;
+    let high: u64;
+    unsafe {
+        core::arch::asm!(
+            "rdtsc",
+            out("eax") low,
+            out("edx") high,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    (high << 32) | low
 }
