@@ -105,15 +105,21 @@ pub fn echo(command: &str) -> bool {
         let text = rest[..pos].join(" ");
         let path = rest[pos + 1];
 
-        let fd = sys_create_file(path);
+        let fd = sys_open(path);
         if fd == 0xFF {
-            crate::println!("failed to create file: {}", path);
-            return true;
+            let fd = sys_create_file(path);
+            if fd == 0xFF {
+                crate::println!("failed to create file: {}", path);
+                return true;
+            }
+            let content = text.as_bytes();
+            sys_write(fd, content);
+            sys_close(fd);
+        } else {
+            let content = text.as_bytes();
+            sys_write(fd, content);
+            sys_close(fd);
         }
-
-        let content = text.as_bytes();
-        sys_write(fd, content);
-        sys_close(fd);
     } else {
         crate::println!("{}", rest.join(" "));
     }

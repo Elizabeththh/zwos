@@ -99,9 +99,14 @@ fn main() -> isize {
             Ok(Command::Touch) => {
                 let path = command.split_whitespace().nth(1);
                 if let Some(path) = path {
-                    let fd = sys_create_file(path);
+                    let fd = sys_open(path);
                     if fd == 0xFF {
-                        println!("failed to create file: {}", path);
+                        let fd = sys_create_file(path);
+                        if fd == 0xFF {
+                            println!("failed to create file: {}", path);
+                        } else {
+                            sys_close(fd);
+                        }
                     } else {
                         sys_close(fd);
                     }
