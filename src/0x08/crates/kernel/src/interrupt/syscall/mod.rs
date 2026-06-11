@@ -124,8 +124,11 @@ pub fn dispatcher(context: &mut ProcessContext) {
         // ptr: arg0 as *mut u8
         Syscall::Deallocate => sys_deallocate(&args),
         // Unknown
+        Syscall::Open => context.set_rax(sys_open(&args)),
+        Syscall::Close => context.set_rax(sys_close(&args)),
+        Syscall::CreateFile => context.set_rax(sys_create_file(&args)),
+        Syscall::CreateDir => context.set_rax(sys_create_dir(&args)),
         Syscall::Unknown => warn!("Unhandled syscall: {:x?}", context.regs.rax),
-        _ => warn!("Unhandled syscall: {:?}", args.syscall),
     }
 }
 
