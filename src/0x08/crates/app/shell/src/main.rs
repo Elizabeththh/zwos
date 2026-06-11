@@ -20,6 +20,8 @@ enum Command {
     Dinner,
     Ls,
     Shell,
+    Mkdir,
+    Touch,
 }
 
 impl FromStr for Command {
@@ -40,6 +42,8 @@ impl FromStr for Command {
             "dinner" => Ok(Command::Dinner),
             "ls" => Ok(Command::Ls),
             "sh" => Ok(Command::Shell),
+            "mkdir" => Ok(Command::Mkdir),
+            "touch" => Ok(Command::Touch),
             _ => Err(()),
         }
     }
@@ -51,6 +55,10 @@ fn main() -> isize {
         print!("> ");
         let command = stdin().read_line();
         let command = command.trim();
+
+        if echo(command) {
+            continue;
+        }
 
         if cat(command) {
             continue;
@@ -77,8 +85,31 @@ fn main() -> isize {
                 }
             }
             Ok(Command::Shell) => spawn_and_wait("/boot/APP/shell"),
+            Ok(Command::Mkdir) => {
+                let path = command.split_whitespace().nth(1);
+                if let Some(path) = path {
+                    if !sys_create_dir(path) {
+                        println!("failed to create directory: {}", path);
+                    }
+                } else {
+                    println!("usage: mkdir <path>");
+                }
+            }
+            Ok(Command::Touch) => {
+                let path = command.split_whitespace().nth(1);
+                if let Some(path) = path {
+                    let fd = sys_create_file(path);
+                    if fd == 0xFF {
+                        println!("failed to create file: {}", path);
+                    } else {
+                        sys_close(fd);
+                    }
+                } else {
+                    println!("usage: touch <path>");
+                }
+            }
             Err(_) => println!(
-                "Unknown command, Please retry\nAvailable command: ps, ls, cat, hello, test, clear, sh, time, exit"
+                "Unknown command, Please retry\nAvailable command: ps, ls, cat, echo, mkdir, touch, hello, test, clear, sh, time, exit"
             ),
         }
     }
@@ -88,7 +119,7 @@ fn main() -> isize {
 #[inline(always)]
 fn help() {
     println!("Developed by lvzw, whose student ID is 24353028");
-    println!("Available Command: ps, ls, cat, hello, test, clear, sh, time, exit");
+    println!("Available Command: ps, ls, cat, echo, mkdir, touch, hello, test, clear, sh, time, exit");
 }
 
 #[inline(always)]
