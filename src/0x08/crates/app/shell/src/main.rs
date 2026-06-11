@@ -28,7 +28,8 @@ impl FromStr for Command {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim() {
+        let first = s.split_whitespace().next().unwrap_or("");
+        match first {
             "ps" => Ok(Command::Ps),
             "lsapp" => Ok(Command::ListApp),
             "hello" => Ok(Command::Hello),
