@@ -41,6 +41,51 @@ impl FileSystem for Mount {
     fn exists(&self, path: &str) -> FsResult<bool> {
         self.fs.exists(self.trim_mount_point(path))
     }
+
+    #[inline]
+    fn create_file(&self, path: &str) -> FsResult<FileHandle> {
+        self.fs.create_file(self.trim_mount_point(path))
+    }
+
+    #[inline]
+    fn append_file(&self, path: &str) -> FsResult<FileHandle> {
+        self.fs.append_file(self.trim_mount_point(path))
+    }
+
+    #[inline]
+    fn remove_file(&self, path: &str) -> FsResult<FileHandle> {
+        self.fs.remove_file(self.trim_mount_point(path))
+    }
+
+    #[inline]
+    fn remove_dir(&self, path: &str) -> FsResult<FileHandle> {
+        self.fs.remove_dir(self.trim_mount_point(path))
+    }
+
+    #[inline]
+    fn copy_file(&self, src: &str, dst: &str) -> FsResult {
+        self.fs.copy_file(self.trim_mount_point(src), self.trim_mount_point(dst))
+    }
+
+    #[inline]
+    fn move_file(&self, src: &str, dst: &str) -> FsResult {
+        self.fs.move_file(self.trim_mount_point(src), self.trim_mount_point(dst))
+    }
+
+    #[inline]
+    fn move_dir(&self, src: &str, dst: &str) -> FsResult {
+        self.fs.move_dir(self.trim_mount_point(src), self.trim_mount_point(dst))
+    }
+
+    #[inline]
+    fn create_dir(&self, path: &str) -> FsResult {
+        self.fs.create_dir(self.trim_mount_point(path))
+    }
+
+    #[inline]
+    fn link(&self, src: &str, dst: &str) -> FsResult {
+        self.fs.link(self.trim_mount_point(src), self.trim_mount_point(dst))
+    }
 }
 
 impl core::fmt::Debug for Mount {

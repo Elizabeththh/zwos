@@ -56,4 +56,14 @@ pub trait FileSystem: Debug + Sync + Send {
     fn move_dir(&self, _src: &str, _dst: &str) -> FsResult {
         Err(FsError::NotSupported)
     }
+
+    /// Creates a directory at this path
+    fn create_dir(&self, _path: &str) -> FsResult {
+        Err(FsError::NotSupported)
+    }
+
+    /// Creates a hard link from src to dst
+    fn link(&self, _src: &str, _dst: &str) -> FsResult {
+        Err(FsError::NotSupported)
+    }
 }

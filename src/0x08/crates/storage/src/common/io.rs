@@ -36,8 +36,14 @@ pub trait Write {
 
     /// Attempts to write an entire buffer into this writer.
     fn write_all(&mut self, mut buf: &[u8]) -> FsResult {
-        // not required for lab
-        todo!()
+        while !buf.is_empty() {
+            let written = self.write(buf)?;
+            if written == 0 {
+                return Err(FsError::WriteZero);
+            }
+            buf = &buf[written..];
+        }
+        Ok(())
     }
 }
 

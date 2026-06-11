@@ -28,10 +28,11 @@ pub struct Metadata {
     pub modified: Option<FsTime>,
     /// Access time of the file
     pub accessed: Option<FsTime>,
+    /// Number of hard links to this entry
+    pub links: usize,
 }
 
 impl Metadata {
-    /// Create a new metadata object
     pub fn new(
         name: String,
         entry_type: FileType,
@@ -47,6 +48,7 @@ impl Metadata {
             modified,
             accessed,
             entry_type,
+            links: 1,
         }
     }
 

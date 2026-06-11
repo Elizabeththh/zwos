@@ -289,6 +289,7 @@ impl From<&DirEntry> for Metadata {
             created: Some(entry.created_time),
             accessed: Some(entry.accessed_time),
             modified: Some(entry.modified_time),
+            links: 1,
         }
     }
 }
