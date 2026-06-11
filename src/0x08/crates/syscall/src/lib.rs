@@ -19,6 +19,11 @@ pub enum Syscall {
     Exit = 60,
     WaitPid = 61,
 
+    Open = 65520,
+    Close = 65521,
+    CreateFile = 65522,
+    CreateDir = 65523,
+
     Cat = 65527,
     ListDir = 65528,
     Sem = 65529,

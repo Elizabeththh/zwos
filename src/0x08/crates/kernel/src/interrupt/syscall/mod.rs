@@ -125,6 +125,7 @@ pub fn dispatcher(context: &mut ProcessContext) {
         Syscall::Deallocate => sys_deallocate(&args),
         // Unknown
         Syscall::Unknown => warn!("Unhandled syscall: {:x?}", context.regs.rax),
+        _ => warn!("Unhandled syscall: {:?}", args.syscall),
     }
 }
 
