@@ -63,7 +63,7 @@ fn main() -> isize {
             Ok(Command::Counter) => spawn_and_wait("counter"),
             Ok(Command::Mq) => spawn_and_wait("mq"),
             Ok(Command::Dinner) => spawn_and_wait("dinner"),
-            Ok(Command::Shell) => spawn_and_wait("sh"),
+            Ok(Command::Shell) => spawn_and_wait("shell"),
             Err(_) => println!("Unknown command, Please retry\nAvailable command: ps, ls, hello, test, clear, sh, time, exit")
         }
         
