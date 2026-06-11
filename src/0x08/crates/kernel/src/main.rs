@@ -18,5 +18,5 @@ pub fn spawn_init() -> proc::ProcessId {
     // NOTE: you may want to clear the screen before starting the shell
     // print!("\x1b[1;1H\x1b[2J");
 
-    proc::spawn("APP/shell").unwrap()
+    proc::spawn("/boot/APP/shell").unwrap()
 }
