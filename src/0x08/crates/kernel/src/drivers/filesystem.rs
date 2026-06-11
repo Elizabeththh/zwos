@@ -236,6 +236,33 @@ pub fn init() {
     vfs.mount(Box::new(Fat16::new(cached_part)), "/boot");
     vfs.mount(Box::new(TmpFs::new(ramdisk)), "/tmp");
 
+    if let Some(second_drive) = AtaDrive::open(0, 1) {
+        info!("Second disk drive found: {}", second_drive);
+        if let Ok(mbr) = MbrTable::parse(second_drive.clone()) {
+            if let Ok(parts) = mbr.partitions() {
+                if !parts.is_empty() {
+                    let second_part = parts.into_iter().next().unwrap();
+                    info!("Mounting second disk partition at /data...");
+                    vfs.mount(Box::new(Fat16::new(second_part)), "/data");
+                } else {
+                    info!("No partitions on second disk, formatting with TmpFS...");
+                    let second_rd = RamDisk::new(second_drive.block_count().unwrap_or(8192));
+                    TmpFs::format(&second_rd, second_drive.block_count().unwrap_or(8192), 256)
+                        .expect("Failed to format second disk");
+                    vfs.mount(Box::new(TmpFs::new(second_rd)), "/data");
+                }
+            }
+        } else {
+            info!("No MBR on second disk, formatting with TmpFS...");
+            let second_rd = RamDisk::new(second_drive.block_count().unwrap_or(8192));
+            TmpFs::format(&second_rd, second_drive.block_count().unwrap_or(8192), 256)
+                .expect("Failed to format second disk");
+            vfs.mount(Box::new(TmpFs::new(second_rd)), "/data");
+        }
+    } else {
+        info!("No second disk drive found.");
+    }
+
     info!("Creating /tmp/mydir...");
     vfs.create_dir("/tmp/mydir").expect("Failed to create /tmp/mydir");
 

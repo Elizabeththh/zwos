@@ -1,5 +1,6 @@
 OVMF := assets/OVMF.fd
 ESP := esp
+DISK := disk.img
 BUILD_ARGS :=
 QEMU_ARGS := -m 128M
 QEMU_OUTPUT := -nographic
@@ -27,12 +28,18 @@ ifeq (${MODE}, release)
 	BUILD_ARGS := --release
 endif
 
-.PHONY: build run debug clean launch intdbg \
+.PHONY: build run debug clean launch intdbg disk \
 	target/x86_64-unknown-uefi/$(MODE)/ysos_boot.efi \
 	target/x86_64-unknown-none/$(PROFILE)/ysos_kernel \
 	target/x86_64-unknown-ysos/$(MODE)
 
-run: build launch
+run: build disk launch
+
+disk:
+	@if [ ! -f $(DISK) ]; then \
+		dd if=/dev/zero of=$(DISK) bs=1M count=4 2>/dev/null; \
+		echo "Created 4MB virtual disk: $(DISK)"; \
+	fi
 
 launch:
 	@qemu-system-x86_64 \
@@ -40,7 +47,8 @@ launch:
 		-net none \
 		$(QEMU_ARGS) \
 		$(QEMU_OUTPUT) \
-		-drive format=raw,file=fat:rw:${ESP}
+		-drive format=raw,file=fat:rw:${ESP} \
+		-drive format=raw,file=$(DISK),if=ide,index=1,media=disk
 
 intdbg:
 	@qemu-system-x86_64 \
@@ -49,6 +57,7 @@ intdbg:
 		$(QEMU_ARGS) \
 		$(QEMU_OUTPUT) \
 		-drive format=raw,file=fat:rw:${ESP} \
+		-drive format=raw,file=$(DISK),if=ide,index=1,media=disk \
 		-no-reboot -d int,cpu_reset
 
 debug:
@@ -58,6 +67,7 @@ debug:
 		$(QEMU_ARGS) \
 		$(QEMU_OUTPUT) \
 		-drive format=raw,file=fat:rw:${ESP} \
+		-drive format=raw,file=$(DISK),if=ide,index=1,media=disk \
 		-s -S
 
 clean:
