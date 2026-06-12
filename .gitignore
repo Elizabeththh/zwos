@@ -22,3 +22,5 @@ reports/**/*.pdf
 reports/**/*.log
 reports/**/*.aux
 reports/**/*.out
+**/images/**
+reports/**/tasks.md
